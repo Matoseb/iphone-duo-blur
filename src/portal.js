@@ -13,10 +13,11 @@ import imageFragment from './shaders/portalImage.frag?raw';
  * That is what a real foldable screen would do (it cannot track your eyes).
  */
 export function createPortal(renderer, {
-  fov, resolution = 2048, background = 0x000000, darkSpread = 1, darkExp = 1, fadeToBlack = 1,
+  fov, resolution = 2048, darkSpread = 1, darkExp = 1, fadeToBlack = 1,
 }) {
+  // Transparent background: alpha marks where the display is. The blur chain blurs color
+  // and alpha together (premultiplied), so the panes can expand the image past its edges.
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(background);
 
   // Square frame. The field of view controls the portal's perspective: the camera backs off
   // just far enough for the whole plane to fit the frame with a margin, so a wide fov means
@@ -52,6 +53,16 @@ export function createPortal(renderer, {
   return {
     scene,
     viewProjection,
+    /**
+     * Sigma of blur level 1 in distance-from-hinge units (1 = half the display width).
+     * The 9-tap Gaussian at half resolution is ~2.5 px of the full portal render; the
+     * display's half width fills 1 / FRAME_MARGIN of half the frame.
+     */
+    get blurSigma0() {
+      const halfFramePx = resolution / 2;
+      const halfWidthPx = halfFramePx / FRAME_MARGIN; // the display half width, in portal px
+      return 2.5 / halfWidthPx;
+    },
     /** Change the portal camera's field of view (call render() again afterwards). */
     setFov,
     get distance() { return camera.position.z; },

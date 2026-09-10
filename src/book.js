@@ -13,7 +13,7 @@ const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2
  * surface at the center line, so when closed the two slabs stack instead of intersecting.
  */
 function createHalf(portal, side, {
-  halfWidth, height, thickness, cornerRadius, edgeChamfer, bezel, backScreen, foldable, maxLevel, blurExp, fadeToBlack, darkSpread, darkExp, darkEndDeg,
+  halfWidth, height, thickness, cornerRadius, edgeChamfer, bezel, backScreen, foldable, maxLevel, blurExp, blurExpand, blurSpread, blurRamp, fadeToBlack, darkSpread, darkExp, darkEndDeg,
   stretchMaxDeg, stretchStartDeg, stretchEndDeg, envMap, glassStrength, glassGloss,
 }) {
   // the hinge is at +x for the left half and -x for the right half
@@ -21,7 +21,7 @@ function createHalf(portal, side, {
     width: halfWidth, height, thickness, cornerRadius, edgeChamfer, hingeSide: -side,
   });
 
-  const shared = createScreenUniforms(portal, { maxLevel, blurExp, fadeToBlack, darkSpread, darkExp, envMap, glassStrength, glassGloss });
+  const shared = createScreenUniforms(portal, { maxLevel, blurExp, blurExpand, blurSpread, blurRamp, fadeToBlack, darkSpread, darkExp, envMap, glassStrength, glassGloss });
   const chrome = createChromeMaterial();
   const materials = [
     createScreenMaterial(shared, { ...screen, bezel }), // group 0: front screen
@@ -121,14 +121,14 @@ function createHalf(portal, side, {
  */
 export function createBook(portal, {
   width, height, thickness = 0.05, cornerRadius = 0.15, edgeChamfer = 0, bezel = 0.02,
-  maxLevel, blurExp = 1, fadeToBlack = 1, darkSpread = 1, darkExp = 1, darkEndDeg = 180,
+  maxLevel, blurExp = 1, blurExpand = 0, blurSpread = 0, blurRamp = 0, fadeToBlack = 1, darkSpread = 1, darkExp = 1, darkEndDeg = 180,
   stretchMaxDeg = 0, stretchStartDeg = 0, stretchEndDeg = 180,
   foldable = { left: true, right: true }, backScreen = { left: true, right: true },
   envMap = null, glassStrength = 1, glassGloss = 1,
 }) {
   const group = new THREE.Group();
   const params = {
-    halfWidth: width / 2, height, thickness, cornerRadius, edgeChamfer, bezel, maxLevel, blurExp, fadeToBlack, darkSpread, darkExp, darkEndDeg,
+    halfWidth: width / 2, height, thickness, cornerRadius, edgeChamfer, bezel, maxLevel, blurExp, blurExpand, blurSpread, blurRamp, fadeToBlack, darkSpread, darkExp, darkEndDeg,
     stretchMaxDeg, stretchStartDeg, stretchEndDeg, envMap, glassStrength, glassGloss,
   };
 

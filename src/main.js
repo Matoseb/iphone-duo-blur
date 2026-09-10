@@ -15,7 +15,10 @@ const BEZEL = 0.04;            // black outline along the three outer edges of e
 const GLASS_REFLECTION = 1;    // 0..1, strength of the glass reflection on the screens
 const GLASS_GLOSS = 1;         // 0 = mirror sharp reflection, higher = blurrier (mip levels)
 const MAX_BLUR_LEVEL = 25;      // 0..6, blur strength at the outer edge of a fully folded pane (each level doubles the radius)
-const BLUR_EXP = 0.75;            // shape of the blur along the pane: 1 = linear, 2 = exponential-like (slow start, steep end)
+const BLUR_EXP = 0.75;         // shape of the blur along the pane: 1 = linear, < 1 = strong early, > 1 = slow start
+const BLUR_EXPAND = 0;         // 0..1: how far the blurred image spreads past its edges instead of darkening them
+const BLUR_SPREAD = 1.5;       // scatter: how far a blurred zone bleeds into sharper zones (0 = gather only, 1 = ~2 sigma)
+const BLUR_RAMP = 0.01;         // S-curve: the blur rises smoothly from 0 at the hinge to full over this fraction of the half
 const FADE_TO_BLACK = 1;       // 0..1, how dark the pane gets at the far end of the fade
 const DARK_END_DEG = 120;      // fold angle at which the whole pane is dark
 const DARK_SPREAD = 2;         // how much the outer edge leads the hinge (1 = the gradient spans the whole pane)
@@ -101,6 +104,9 @@ async function init() {
     bezel: BEZEL,
     maxLevel: MAX_BLUR_LEVEL,
     blurExp: BLUR_EXP,
+    blurExpand: BLUR_EXPAND,
+    blurSpread: BLUR_SPREAD,
+    blurRamp: BLUR_RAMP,
     fadeToBlack: FADE_TO_BLACK,
     darkSpread: DARK_SPREAD,
     darkExp: DARK_EXP,

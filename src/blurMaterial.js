@@ -7,7 +7,7 @@ export const BLUR_LEVELS = 6; // blur levels built by the post-process chain (sh
 /**
  * Uniforms of one half's screens (updated per frame in book.js).
  */
-export function createScreenUniforms(portal, { maxLevel, blurExp, fadeToBlack, darkSpread, darkExp, envMap, glassStrength, glassGloss }) {
+export function createScreenUniforms(portal, { maxLevel, blurExp, blurExpand, blurSpread, blurRamp, fadeToBlack, darkSpread, darkExp, envMap, glassStrength, glassGloss }) {
   const levels = {};
   for (let i = 0; i <= BLUR_LEVELS; i++) {
     levels[`uLevel${i}`] = { value: portal.blurLevels[i] };
@@ -16,6 +16,10 @@ export function createScreenUniforms(portal, { maxLevel, blurExp, fadeToBlack, d
     ...levels,
     uMaxLevel: { value: Math.min(maxLevel, BLUR_LEVELS) },
     uBlurExp: { value: blurExp },
+    uBlurExpand: { value: blurExpand },
+    uBlurSpread: { value: blurSpread },
+    uBlurRamp: { value: blurRamp },
+    uBlurSigma0: { value: portal.blurSigma0 },
     uPortalViewProjection: { value: portal.viewProjection },
     uStretchMatrix: { value: new THREE.Matrix4() },
     uStretchMatrixBack: { value: new THREE.Matrix4() },
