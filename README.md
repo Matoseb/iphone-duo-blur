@@ -1,4 +1,4 @@
-# Foldable Phone
+# iPhone Duo blur effect
 
 A foldable phone rendered with [three.js](https://threejs.org/) and bundled with [Vite](https://vite.dev/).
 
@@ -19,6 +19,6 @@ All the tunable values (blur, darkening, stretch, camera, phone size) are consta
 
 ## Credits
 
-Built by [Sébastien Matos](https://github.com/Matoseb) together with Claude Fable 5.1 (Anthropic), which wrote the code through an iterative conversation in Claude Code.
+Built by Sébastien Matos together with Claude Fable 5.1 (Anthropic), which wrote the code through an iterative conversation in Claude Code.
 
 Image: `image2.jpg`.
