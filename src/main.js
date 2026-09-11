@@ -54,8 +54,8 @@ const INTRO_CAMERA_EASE = 5;   // steepness of the camera's ease in-out (3 = cub
 const INTRO_AZIMUTH_DEG = -55; // where the camera starts, around the phone (0 = frontal)
 const INTRO_ELEVATION_DEG = 18; // ...and above it
 const CAMERA_FOV = 34;
-const PORTAL_FOV_START = 34;   // inner camera the screens show the image from, when open: wide = strong perspective, narrow = flat
-const PORTAL_FOV_END = 50;     // ...and when fully closed; interpolated with the fold (the portal is re-rendered as it changes)
+const PORTAL_FOV_START = 30;   // inner camera the screens show the image from, when open: wide = strong perspective, narrow = flat
+const PORTAL_FOV_END = 30;     // ...and when fully closed; interpolated with the fold (the portal is re-rendered as it changes)
 const PORTAL_FOV_EXP = 2;      // shape of that interpolation vs the fold: 1 = linear, > 1 = stays near START longer, < 1 = moves early
 const PORTAL_GLOW = 0;         // brightness of the big blurred halo of the image behind the display (0 = black surround)
 const FIT_PADDING = 0.08;      // fraction of the viewport kept clear around the open phone (object-fit: contain)
