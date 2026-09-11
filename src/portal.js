@@ -26,6 +26,7 @@ export function createPortal(renderer, {
   // flatter one.
   const camera = new THREE.PerspectiveCamera(fov, 1, 0.1, 1000);
   const viewProjection = new THREE.Matrix4(); // shared by reference with the pane uniforms
+  const eye = new THREE.Vector3();            // the fixed viewpoint, shared by reference too
   let planeHalfSize = 1; // half of the larger plane dimension, set by setImage()
   const FRAME_MARGIN = 1.25;
   function setFov(value) {
@@ -36,6 +37,7 @@ export function createPortal(renderer, {
     camera.lookAt(0, 0, 0);
     camera.updateMatrixWorld();
     viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    eye.copy(camera.position);
   }
   setFov(fov);
 
@@ -53,9 +55,12 @@ export function createPortal(renderer, {
   return {
     scene,
     viewProjection,
+    eye,
     /** Change the portal camera's field of view (call render() again afterwards). */
     setFov,
     get distance() { return camera.position.z; },
+    /** Sigma of blur level 1 in portal uv units (the 9-tap Gaussian is ~2.5 px at half resolution). */
+    get sigmaUv() { return 2.5 / resolution; },
     blurLevels: blur.textures, // [sharp, blur 1, blur 2, ...]
     /**
      * Put the image in the portal scene, on the display area (the screen inside the bezel):

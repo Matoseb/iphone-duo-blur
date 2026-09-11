@@ -33,7 +33,10 @@ uniform float uGlassOnDark;      // how much of the reflection sheen remains whe
 uniform float uBlackout;         // front: 0 = display on, 1 = fully black (past the blackout angle)
 uniform float uBlackoutBack;     // back: same, measured from fully closed
 uniform float uBlurExpand;       // 0 = blur darkens the edges (black bleeds in), 1 = blurred image expands outward
-uniform float uPerspective;      // vertical: 0 = flat lookup (no wedges), 1 = real projection of the fold through the portal camera
+uniform float uPerspective;      // 0 = flat lookup (the pane's own slice), 1 = real projection of the folded pane from the front
+uniform float uViewTrack;        // front: 0 = lookup made for the frontal viewpoint, 1 = traced from the moving eye (ramps with the angle)
+uniform float uViewTrackBack;    // back: same, measured from fully closed
+uniform mat4 uPortalViewProjection; // fixed portal camera (to project the traced point)
 uniform float uHingeX;           // local x of the hinge edge of the screen
 uniform float uEdgeX;            // local x of the outer edge of the screen
 uniform float uHalfHeight;       // local half height of the screen
@@ -45,6 +48,10 @@ uniform float uGlassStrength;    // 0 = no reflection, 1 = physically plausible 
 uniform float uGlassGloss;       // 0 = mirror sharp, higher = blurrier reflection
 uniform float uGlassThickness;   // glass layer over the display (world units): refraction shifts the image at angles
 uniform float uGlassIor;         // index of refraction of that glass (1.5 = glass)
+uniform float uGlassDispersion;  // RGB split: red bends by (ior - this), blue by (ior + this); 0 = no fringes
+uniform float uFrostDispersion;  // RGB split tied to the frost: red/blue shifted by this many blur sigmas along the pane
+uniform float uSigmaUv;          // sigma of blur level 1, in portal uv units (doubles per level)
+uniform vec3 uPortalEye;         // the viewpoint the screens are made for: frontal, moved a bit with the hinge angle
 
 varying vec3 vLocal;
 varying float vIsBack;
@@ -53,8 +60,6 @@ varying vec3 vWorldNormal;
 varying vec3 vTangentX;
 varying vec3 vTangentY;
 varying vec4 vPortalClip;
-varying vec4 vStretchClip;
-varying vec4 vStretchClipBack;
 varying vec4 vFlatClip;
 varying vec4 vFlatClipBack;
 
@@ -68,46 +73,77 @@ float sdRoundedBox(vec2 p, vec2 b, float r) {
   return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
 }
 
-// Portal lookup of this face. Horizontal: projection at the virtual fold angle (stretch;
-// none when the virtual angle is 0). Vertical: between the flat lookup and the real
-// projection of the fold (uPerspective).
-vec2 lookupUv(vec4 stretchClip, vec4 flatClip) {
+// Portal lookup of this face, made for the frontal viewpoint: between the flat lookup (the
+// pane's own slice of the picture) and the real projection of the folded pane (uPerspective).
+vec2 fixedLookupUv(vec4 flatClip) {
   vec2 folded = vPortalClip.xy / vPortalClip.w;
-  vec2 stretched = stretchClip.xy / stretchClip.w;
   vec2 resting = flatClip.xy / flatClip.w;
-  return vec2(stretched.x, mix(resting.y, folded.y, uPerspective)) * 0.5 + 0.5;
+  return mix(resting, folded, uPerspective) * 0.5 + 0.5;
 }
 
-// Refraction through the glass layer: where the eye's ray, bent at the surface, reaches the
-// display under it, as an offset in the slab's local x/y (world units).
-vec2 refractionOffset() {
+// Angle-aware lookup: the ray from the eye (the fixed viewpoint, moved a little around the
+// phone with the hinge angle) through this pixel, continued down to the face's window
+// plane, then projected through the portal camera. Depends on the fold only.
+vec2 viewLookupUv() {
+  vec3 V = normalize(vWorldPosition - uPortalEye);
+  float vz = abs(V.z) < 1e-4 ? (V.z < 0.0 ? -1e-4 : 1e-4) : V.z;
+  float t = (uWindowZ - vWorldPosition.z) / vz;
+  vec3 hit = vWorldPosition + V * t;                 // on the window plane
+  vec4 clip = uPortalViewProjection * vec4(hit.x, hit.y, 0.0, 1.0); // window plane <-> image plane
+  return clip.xy / clip.w * 0.5 + 0.5;
+}
+
+vec2 lookupUv(vec4 flatClip, float track) {
+  return mix(fixedLookupUv(flatClip), viewLookupUv(), track);
+}
+
+// Refraction through the glass layer: where the ray from the FIXED viewpoint, bent at the
+// surface, reaches the display under it, as an offset in the slab's local x/y (world units).
+// Like everything the screen shows, it does not know where the real viewer is, so the
+// shift and the colour fringes are glued to the pane and only change with the fold.
+vec2 refractionOffset(float ior) {
   vec3 N = normalize(vWorldNormal);
-  vec3 V = normalize(cameraPosition - vWorldPosition);
-  vec3 R = refract(-V, N, 1.0 / uGlassIor);           // ray inside the glass
+  vec3 V = normalize(uPortalEye - vWorldPosition);
+  vec3 R = refract(-V, N, 1.0 / ior);                  // ray inside the glass
   float depth = max(dot(R, -N), 1e-3);                 // how fast it sinks toward the display
   vec3 hit = R * (uGlassThickness / depth);           // point reached on the display plane
   vec3 offset = hit + N * uGlassThickness;            // minus the straight-down foot: in-plane shift
   return vec2(dot(offset, vTangentX), dot(offset, vTangentY));
 }
 
-vec4 renderFace(vec2 uv, float blackout) {
-  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return vec4(0.0, 0.0, 0.0, 1.0);
-
-  // frosted window: blur grows with the distance between this pixel and the window plane
-  float distance = abs(vWorldPosition.z - uWindowZ);
-  float amount = pow(clamp(distance / uFrostDistance, 0.0, 1.0), uBlurExp);
-  // blur radius doubles per level, so use a log curve to make the radius grow linearly
-  float level = log2(1.0 + amount * (exp2(uMaxLevel) - 1.0));
-
-  // premultiplied color + alpha (alpha = how much of the display the blur kernel covered)
-  vec4 blurred =
-      texture2D(uLevel0, uv) * weight(level, 0.0)
+// the blur levels blended at `level`, sampled at uv (premultiplied color + alpha)
+vec4 sampleBlur(vec2 uv, float level) {
+  return texture2D(uLevel0, uv) * weight(level, 0.0)
     + texture2D(uLevel1, uv) * weight(level, 1.0)
     + texture2D(uLevel2, uv) * weight(level, 2.0)
     + texture2D(uLevel3, uv) * weight(level, 3.0)
     + texture2D(uLevel4, uv) * weight(level, 4.0)
     + texture2D(uLevel5, uv) * weight(level, 5.0)
     + texture2D(uLevel6, uv) * weight(level, 6.0);
+}
+
+// frosted window: the frost amount (0..1) grows with the distance between this pixel and
+// the window plane; it drives the blur and every colour split
+float frostAmount() {
+  float distance = abs(vWorldPosition.z - uWindowZ);
+  return pow(clamp(distance / uFrostDistance, 0.0, 1.0), uBlurExp);
+}
+
+vec4 renderFace(vec2 uv, float blackout) {
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return vec4(0.0, 0.0, 0.0, 1.0);
+
+  float distance = abs(vWorldPosition.z - uWindowZ);
+  float amount = frostAmount();
+  // blur radius doubles per level, so use a log curve to make the radius grow linearly
+  float level = log2(1.0 + amount * (exp2(uMaxLevel) - 1.0));
+
+  // Frost dispersion: the colours separate along the pane by a fraction of the local blur
+  // radius (none where sharp, wide where blurred), so the fringes stay visible in the blur.
+  float sigma = uSigmaUv * (exp2(level) - 1.0);
+  vec2 split = vec2(sign(uEdgeX - uHingeX) * uFrostDispersion * sigma, 0.0);
+  vec4 blurred = sampleBlur(uv, level);
+  blurred.r = sampleBlur(uv - split, level).r;
+  blurred.b = sampleBlur(uv + split, level).b;
 
   // Expanding blur: un-premultiply so the colors reach past the display edge, then cover
   // with the blurred alpha pushed toward 1 (the more expand, the further the halo reaches).
@@ -157,23 +193,30 @@ void main() {
 
   // Lookup for this face, shifted by the refraction. The world-space shift is converted
   // into a lookup shift with the screen-space derivatives (the Jacobian of uv vs local
-  // position), so it stays exact under the fold and the stretch. Computed before any
+  // position), so it stays exact under the fold. Computed before any
   // branching, as derivatives require.
   bool back = vIsBack > 0.5 && !uBackAsFront;
-  vec2 uv = back ? lookupUv(vStretchClipBack, vFlatClipBack) : lookupUv(vStretchClip, vFlatClip);
+  vec2 uv = back ? lookupUv(vFlatClipBack, uViewTrackBack) : lookupUv(vFlatClip, uViewTrack);
   mat2 dLocal = mat2(dFdx(vLocal.xy), dFdy(vLocal.xy)); // columns: d local / d screen x, y
   mat2 dUv = mat2(dFdx(uv), dFdy(uv));
+  // dispersion: each channel refracts with its own index, so edges split into colour fringes
+  vec2 uvR = uv, uvG = uv, uvB = uv;
   if (abs(determinant(dLocal)) > 1e-12) {                 // not edge-on
     mat2 jacobian = dUv * inverse(dLocal);                // d uv / d local
-    uv += jacobian * refractionOffset();
+    // the refraction split is scaled by the frost amount too: no fringes where the blur is zero
+    float dispersion = uGlassDispersion * frostAmount();
+    uvR += jacobian * refractionOffset(uGlassIor - dispersion);
+    uvG += jacobian * refractionOffset(uGlassIor);
+    uvB += jacobian * refractionOffset(uGlassIor + dispersion);
   }
 
   vec3 content = vec3(0.0);
   float light = 1.0;
   if (d <= -uBezel && !onHingeEdge) {
-    vec4 face = renderFace(uv, back ? uBlackoutBack : uBlackout);
-    content = face.rgb;
-    light = face.a;
+    float blackout = back ? uBlackoutBack : uBlackout;
+    vec4 faceG = renderFace(uvG, blackout);
+    content = vec3(renderFace(uvR, blackout).r, faceG.g, renderFace(uvB, blackout).b);
+    light = faceG.a;
   }
 
   gl_FragColor = vec4(glass(content, light), 1.0); // the glass covers the bezel too

@@ -16,8 +16,7 @@ function createHalf(portal, side, {
   halfWidth, height, thickness, cornerRadius, edgeChamfer, bezel, backScreen, foldable,
   maxLevel, frostDistance, blurExp, blurExpand, frostColor, frostPerUnit, frostExp, frostStrength,
   lightLossPerUnit, lightLossExp, lightBlackPoint, glassOnDark, blackoutStartDeg, blackoutEndDeg,
-  stretchMaxDeg, stretchStartDeg, stretchEndDeg, stretchTrack, perspective,
-  envMap, glass, matte, glassThickness, glassIor,
+  perspective, viewTrack, viewFollow, viewTrackStartDeg, viewTrackEndDeg, viewTrackExp, envMap, glass, matte, glassThickness, glassIor, glassDispersion, frostDispersion,
 }) {
   // the hinge is at +x for the left half and -x for the right half
   const { geometry, screen } = createSlabGeometry({
@@ -26,13 +25,14 @@ function createHalf(portal, side, {
 
   const shared = createScreenUniforms(portal, {
     maxLevel, frostDistance, blurExp, blurExpand, frostColor, frostPerUnit, frostExp, frostStrength,
-    lightLossPerUnit, lightLossExp, lightBlackPoint, glassOnDark, envMap, glassThickness, glassIor, perspective,
+    lightLossPerUnit, lightLossExp, lightBlackPoint, glassOnDark, envMap, glassThickness, glassIor, glassDispersion, frostDispersion, perspective, viewTrack,
   });
   // Frosted windows: the plane each face rests on when flat against the image.
   // Front: the hinge axis plane (z = thickness / 2). Back of a folding half: the top of the
   // closed stack (one thickness higher). Back of a static half: its own back surface.
   const hingeZ = thickness / 2;
   const backWindowZ = foldable ? hingeZ + thickness : hingeZ - thickness;
+
   const chrome = createChromeMaterial();
   // the inner screens are matte, the cover display on the back is glossy glass
   const materials = [
@@ -70,24 +70,26 @@ function createHalf(portal, side, {
   poseAt(shared.uFlatMatrix.value, 0);
   poseAt(shared.uFlatMatrixBack.value, Math.PI);
 
-  const max = THREE.MathUtils.degToRad(stretchMaxDeg);
-  const start = THREE.MathUtils.degToRad(stretchStartDeg);
-  const end = THREE.MathUtils.degToRad(stretchEndDeg);
+  // the traced lookup ramps in with the angle along a sine ease-in: none when nearly
+  // flat, full past viewTrackEndDeg
+  const trackStart = THREE.MathUtils.degToRad(viewTrackStartDeg);
+  const trackEnd = THREE.MathUtils.degToRad(viewTrackEndDeg);
+  // sine ease-in, shaped by an exponent: 1 = plain sine ease-in, > 1 = later and sharper
+  const easeIn = (t) => Math.pow(1 - Math.cos(t * Math.PI / 2), viewTrackExp);
+  const trackAt = (a) => viewTrack * easeIn(THREE.MathUtils.clamp((a - trackStart) / (trackEnd - trackStart), 0, 1));
   const blackoutStart = THREE.MathUtils.degToRad(blackoutStartDeg);
   const blackoutEnd = THREE.MathUtils.degToRad(blackoutEndDeg);
   // the display switches off between the two blackout angles, fully black past the end
   const blackoutAt = (a) => THREE.MathUtils.smoothstep(a, blackoutStart, blackoutEnd);
-  // Horizontal lookup angle. Track mode: the real fold angle, capped just below 90° where
-  // the projection would collapse. This is the physical "frosted sheet over the window"
-  // look: from the fixed viewpoint the picture stays in place and the pane's content is
-  // compressed by the cosine of the angle (a counter stretch). Otherwise: a virtual angle
-  // rising along a quarter sine between start and end (the stylized stretch).
-  const virtualAngleFor = stretchTrack
-    ? (a) => Math.min(a, max)
-    : (a) => {
-      const progress = THREE.MathUtils.clamp((a - start) / (end - start), 0, 1);
-      return max * Math.sin(progress * Math.PI / 2);
-    };
+
+  // The viewpoint the screens are made for: frontal, swung around the phone by a fraction
+  // of the fold angle toward the side that sees the folded pane more head-on.
+  const eyeDistance = portal.eye.length();
+  const moveEye = (angle) => {
+    const azimuth = viewFollow * angle;
+    shared.uPortalEye.value.set(-side * eyeDistance * Math.sin(azimuth), 0, eyeDistance * Math.cos(azimuth));
+  };
+  moveEye(0);
 
   const half = {
     side,
@@ -123,13 +125,13 @@ function createHalf(portal, side, {
       // rotate toward the camera: the right half needs a negative angle, the left a positive one
       const angle = half.fold * MAX_ANGLE;
       hinge.rotation.y = -side * angle;
-      // the back runs the same stretch and blackout measured from fully closed (180°)
+      // the back runs the same effects measured from fully closed (180°)
       const backAngle = Math.PI - angle;
       shared.uBlackout.value = blackoutAt(angle);
       shared.uBlackoutBack.value = blackoutAt(backAngle);
-      // front: virtual angle opens from flat; back: virtual angle opens from closed (180°)
-      poseAt(shared.uStretchMatrix.value, virtualAngleFor(angle));
-      poseAt(shared.uStretchMatrixBack.value, Math.PI - virtualAngleFor(backAngle));
+      shared.uViewTrack.value = trackAt(angle);
+      shared.uViewTrackBack.value = trackAt(backAngle);
+      moveEye(angle);
     },
   };
   return half;
@@ -146,17 +148,17 @@ export function createBook(portal, {
   frostColor = 0x9a9a9a, frostPerUnit = 1, frostExp = 1, frostStrength = 0, lightLossPerUnit = 0, lightLossExp = 1,
   lightBlackPoint = 0, glassOnDark = 1,
   blackoutStartDeg = 180, blackoutEndDeg = 180,
-  stretchMaxDeg = 0, stretchStartDeg = 0, stretchEndDeg = 180, stretchTrack = false, perspective = 1,
+  perspective = 1, viewTrack = 0, viewFollow = 0, viewTrackStartDeg = 0, viewTrackEndDeg = 0, viewTrackExp = 1,
   foldable = { left: true, right: true }, backScreen = { left: true, right: true },
   envMap = null, glass = { reflection: 1, gloss: 1 }, matte = { reflection: 0.3, gloss: 6 },
-  glassThickness = 0, glassIor = 1.5,
+  glassThickness = 0, glassIor = 1.5, glassDispersion = 0, frostDispersion = 0, displayOverscan = 0,
 }) {
   const group = new THREE.Group();
   const params = {
     halfWidth: width / 2, height, thickness, cornerRadius, edgeChamfer, bezel, maxLevel, frostDistance, blurExp, blurExpand,
     frostColor, frostPerUnit, frostExp, frostStrength, lightLossPerUnit, lightLossExp, lightBlackPoint, glassOnDark,
     blackoutStartDeg, blackoutEndDeg,
-    stretchMaxDeg, stretchStartDeg, stretchEndDeg, stretchTrack, perspective, envMap, glass, matte, glassThickness, glassIor,
+    perspective, viewTrack, viewFollow, viewTrackStartDeg, viewTrackEndDeg, viewTrackExp, envMap, glass, matte, glassThickness, glassIor, glassDispersion, frostDispersion,
   };
 
   const halves = [
@@ -174,11 +176,15 @@ export function createBook(portal, {
   // The display area of the open phone: both screens, inside the chamfer and the bezel.
   // Screen extents are in the slab's local coordinates (centered on that half), so the
   // right half's outer edge sits at its center offset (width / 4) plus its local edge x.
+  // The image runs a little further under the bezel than the opening (overscan), so the
+  // pane's edge pixels never sample the display's antialiased boundary or the halo beyond
+  // it, even with the refraction shift and texture filtering.
   const right = halves[1].screen; // its outer edge is at +x
+  const inset = bezel - displayOverscan;
   const display = {
-    halfWidth: width / 4 + right.edgeX - bezel,
-    halfHeight: right.halfHeight - bezel,
-    radius: Math.max(0, right.cornerRadius - bezel),
+    halfWidth: width / 4 + right.edgeX - inset,
+    halfHeight: right.halfHeight - inset,
+    radius: Math.max(0, right.cornerRadius - inset),
   };
 
   return {
