@@ -16,6 +16,8 @@ const GLASS_REFLECTION = 1;    // cover display (back): 0..1, strength of the gl
 const GLASS_GLOSS = 1;         // cover display (back): 0 = mirror sharp reflection, higher = blurrier (mip levels)
 const MATTE_REFLECTION = 0.3;  // inner screens: weak, diffuse sheen instead of a glass reflection
 const MATTE_GLOSS = 6;         // inner screens: very blurred reflection (mip levels)
+const GLASS_THICKNESS = 0.03;  // glass layer over the displays (world units): refraction shifts the image at angles
+const GLASS_IOR = 1.5;         // index of refraction of that glass
 const MAX_BLUR_LEVEL = 6;      // 0..6, blur reached at FROST_DISTANCE from the window (each level doubles the radius)
 const FROST_DISTANCE = 1.2;    // frosted window: distance (world units) from the window plane at which the blur is maximal
 const BLUR_EXP = 1;            // blur vs distance: 1 = linear, < 1 = quick start, > 1 = slow start
@@ -24,8 +26,10 @@ const FROST_COLOR = 0x9a9a9a;  // diffuse tone of the frosted glass the image fa
 const FROST_PER_UNIT = 1.2;    // rate of the fade toward that tone per world unit of distance (exponential decay)
 const FROST_EXP = 1.3;         // shape: 1 = pure exponential, > 1 = slow start
 const FROST_STRENGTH = 1;      // 0 = no fade, 1 = can reach the frost tone completely
-const LIGHT_LOSS_PER_UNIT = 2.4 * .8; // light attenuation rate per world unit of distance (exponential: far edge upright < 1% left)
-const LIGHT_LOSS_EXP = 1.2 * 1.2;      // shape: 1 = pure exponential, > 1 = slow start, never a hard cut-off
+const LIGHT_LOSS_PER_UNIT = 2.2; // light attenuation rate per world unit of distance (exponential decay)
+const LIGHT_LOSS_EXP = 1.6;      // shape: 1 = pure exponential, > 1 = slow start, steeper middle
+const LIGHT_BLACK_POINT = 0.06;  // light below this fraction clips to true black (kills the exponential's tail)
+const GLASS_ON_DARK = 0.35;      // how much reflection sheen remains where the light is gone (0 = none)
 const BLACKOUT_START_DEG = 100; // the display starts switching off at this fold angle...
 const BLACKOUT_END_DEG = 125;   // ...and is fully black from this angle on (back: measured from closed)
 const STRETCH_MAX_DEG = 90;    // virtual fold angle used for the horizontal stretch at full strength (< 90)
@@ -126,6 +130,8 @@ async function init() {
     frostStrength: FROST_STRENGTH,
     lightLossPerUnit: LIGHT_LOSS_PER_UNIT,
     lightLossExp: LIGHT_LOSS_EXP,
+    lightBlackPoint: LIGHT_BLACK_POINT,
+    glassOnDark: GLASS_ON_DARK,
     blackoutStartDeg: BLACKOUT_START_DEG,
     blackoutEndDeg: BLACKOUT_END_DEG,
     stretchMaxDeg: STRETCH_MAX_DEG,
@@ -136,6 +142,8 @@ async function init() {
     envMap: envCube.texture,
     glass: { reflection: GLASS_REFLECTION, gloss: GLASS_GLOSS },
     matte: { reflection: MATTE_REFLECTION, gloss: MATTE_GLOSS },
+    glassThickness: GLASS_THICKNESS,
+    glassIor: GLASS_IOR,
   });
   scene.add(book.group);
 

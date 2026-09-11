@@ -7,6 +7,8 @@ varying vec3 vLocal;                // position on the slab, in its local coordi
 varying float vIsBack;              // 1 on the back screen, 0 on the front
 varying vec3 vWorldPosition;
 varying vec3 vWorldNormal;
+varying vec3 vTangentX;             // the slab's local x axis, in world space
+varying vec3 vTangentY;             // the slab's local y axis, in world space
 varying vec4 vPortalClip;           // this point, really folded, as seen by the portal camera
 varying vec4 vStretchClip;          // front: virtually folded, as seen by the portal camera
 varying vec4 vStretchClipBack;      // back: virtually folded (measured from fully closed)
@@ -18,6 +20,8 @@ void main() {
   vec4 worldPosition = modelMatrix * local;
   vWorldPosition = worldPosition.xyz;
   vWorldNormal = normalize(mat3(modelMatrix) * normal);
+  vTangentX = normalize(mat3(modelMatrix) * vec3(1.0, 0.0, 0.0));
+  vTangentY = normalize(mat3(modelMatrix) * vec3(0.0, 1.0, 0.0));
   // Project through the portal camera as if this face lay on the portal image plane (z = 0)
   // when flat: shift by its window plane, otherwise the face's height above that plane
   // would magnify the lookup slightly and its edges would sample outside the display.

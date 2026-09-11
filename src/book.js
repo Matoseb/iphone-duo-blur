@@ -15,8 +15,8 @@ const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2
 function createHalf(portal, side, {
   halfWidth, height, thickness, cornerRadius, edgeChamfer, bezel, backScreen, foldable,
   maxLevel, frostDistance, blurExp, blurExpand, frostColor, frostPerUnit, frostExp, frostStrength,
-  lightLossPerUnit, lightLossExp, blackoutStartDeg, blackoutEndDeg,
-  stretchMaxDeg, stretchStartDeg, stretchEndDeg, envMap, glass, matte,
+  lightLossPerUnit, lightLossExp, lightBlackPoint, glassOnDark, blackoutStartDeg, blackoutEndDeg,
+  stretchMaxDeg, stretchStartDeg, stretchEndDeg, envMap, glass, matte, glassThickness, glassIor,
 }) {
   // the hinge is at +x for the left half and -x for the right half
   const { geometry, screen } = createSlabGeometry({
@@ -25,7 +25,7 @@ function createHalf(portal, side, {
 
   const shared = createScreenUniforms(portal, {
     maxLevel, frostDistance, blurExp, blurExpand, frostColor, frostPerUnit, frostExp, frostStrength,
-    lightLossPerUnit, lightLossExp, envMap,
+    lightLossPerUnit, lightLossExp, lightBlackPoint, glassOnDark, envMap, glassThickness, glassIor,
   });
   // Frosted windows: the plane each face rests on when flat against the image.
   // Front: the hinge axis plane (z = thickness / 2). Back of a folding half: the top of the
@@ -133,16 +133,19 @@ export function createBook(portal, {
   width, height, thickness = 0.05, cornerRadius = 0.15, edgeChamfer = 0, bezel = 0.02,
   maxLevel, frostDistance = 1, blurExp = 1, blurExpand = 0,
   frostColor = 0x9a9a9a, frostPerUnit = 1, frostExp = 1, frostStrength = 0, lightLossPerUnit = 0, lightLossExp = 1,
+  lightBlackPoint = 0, glassOnDark = 1,
   blackoutStartDeg = 180, blackoutEndDeg = 180,
   stretchMaxDeg = 0, stretchStartDeg = 0, stretchEndDeg = 180,
   foldable = { left: true, right: true }, backScreen = { left: true, right: true },
   envMap = null, glass = { reflection: 1, gloss: 1 }, matte = { reflection: 0.3, gloss: 6 },
+  glassThickness = 0, glassIor = 1.5,
 }) {
   const group = new THREE.Group();
   const params = {
     halfWidth: width / 2, height, thickness, cornerRadius, edgeChamfer, bezel, maxLevel, frostDistance, blurExp, blurExpand,
-    frostColor, frostPerUnit, frostExp, frostStrength, lightLossPerUnit, lightLossExp, blackoutStartDeg, blackoutEndDeg,
-    stretchMaxDeg, stretchStartDeg, stretchEndDeg, envMap, glass, matte,
+    frostColor, frostPerUnit, frostExp, frostStrength, lightLossPerUnit, lightLossExp, lightBlackPoint, glassOnDark,
+    blackoutStartDeg, blackoutEndDeg,
+    stretchMaxDeg, stretchStartDeg, stretchEndDeg, envMap, glass, matte, glassThickness, glassIor,
   };
 
   const halves = [

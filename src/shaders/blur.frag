@@ -28,6 +28,8 @@ uniform float uFrostExp;         // shape: 1 = pure exponential, > 1 = slow star
 uniform float uFrostStrength;    // 0 = no fade, 1 = can reach the frost tone completely
 uniform float uLightLossPerUnit; // attenuation rate of the light per world unit of distance (exponential)
 uniform float uLightLossExp;     // shape: 1 = pure exponential, > 1 = slow start (Gaussian-like at 2)
+uniform float uLightBlackPoint;  // light below this fraction is clipped to true black (the tail of the exponential)
+uniform float uGlassOnDark;      // how much of the reflection sheen remains where the light is gone (0..1)
 uniform float uBlackout;         // front: 0 = display on, 1 = fully black (past the blackout angle)
 uniform float uBlackoutBack;     // back: same, measured from fully closed
 uniform float uBlurExpand;       // 0 = blur darkens the edges (black bleeds in), 1 = blurred image expands outward
@@ -40,11 +42,15 @@ uniform bool uBackAsFront;       // back screen of a half that never folds: same
 uniform samplerCube uEnvMap;     // surroundings reflected by the glass (linear HDR)
 uniform float uGlassStrength;    // 0 = no reflection, 1 = physically plausible glass
 uniform float uGlassGloss;       // 0 = mirror sharp, higher = blurrier reflection
+uniform float uGlassThickness;   // glass layer over the display (world units): refraction shifts the image at angles
+uniform float uGlassIor;         // index of refraction of that glass (1.5 = glass)
 
 varying vec3 vLocal;
 varying float vIsBack;
 varying vec3 vWorldPosition;
 varying vec3 vWorldNormal;
+varying vec3 vTangentX;
+varying vec3 vTangentY;
 varying vec4 vPortalClip;
 varying vec4 vStretchClip;
 varying vec4 vStretchClipBack;
@@ -59,11 +65,27 @@ float sdRoundedBox(vec2 p, vec2 b, float r) {
   return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
 }
 
-vec4 renderFace(vec4 stretchClip, float blackout) {
-  // Horizontal: projection at the virtual fold angle (stretch). Vertical: real projection.
+// Portal lookup of this face. Horizontal: projection at the virtual fold angle (stretch).
+// Vertical: real projection.
+vec2 lookupUv(vec4 stretchClip) {
   vec2 folded = vPortalClip.xy / vPortalClip.w;
   vec2 stretched = stretchClip.xy / stretchClip.w;
-  vec2 uv = vec2(stretched.x, folded.y) * 0.5 + 0.5;
+  return vec2(stretched.x, folded.y) * 0.5 + 0.5;
+}
+
+// Refraction through the glass layer: where the eye's ray, bent at the surface, reaches the
+// display under it, as an offset in the slab's local x/y (world units).
+vec2 refractionOffset() {
+  vec3 N = normalize(vWorldNormal);
+  vec3 V = normalize(cameraPosition - vWorldPosition);
+  vec3 R = refract(-V, N, 1.0 / uGlassIor);           // ray inside the glass
+  float depth = max(dot(R, -N), 1e-3);                 // how fast it sinks toward the display
+  vec3 hit = R * (uGlassThickness / depth);           // point reached on the display plane
+  vec3 offset = hit + N * uGlassThickness;            // minus the straight-down foot: in-plane shift
+  return vec2(dot(offset, vTangentX), dot(offset, vTangentY));
+}
+
+vec4 renderFace(vec2 uv, float blackout) {
   if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return vec4(0.0, 0.0, 0.0, 1.0);
 
   // frosted window: blur grows with the distance between this pixel and the window plane
@@ -96,22 +118,26 @@ vec4 renderFace(vec4 stretchClip, float blackout) {
   vec3 color = mix(unpremultiplied * coverage, uFrostColor, frost);
   // ...and less light makes it through: the light fades out with distance
   float light = exp(-pow(distance * uLightLossPerUnit, uLightLossExp));
+  light = clamp((light - uLightBlackPoint) / (1.0 - uLightBlackPoint), 0.0, 1.0); // true black at the tail
   color *= light;
 
   // and past the blackout angle the display is simply off
-  return vec4(color * (1.0 - blackout), 1.0);
+  light *= 1.0 - blackout;
+  return vec4(color * (1.0 - blackout), light); // alpha carries the light for the sheen
 }
 
 // Glass on top of the display: Schlick Fresnel (4% head-on, up to 100% at grazing angles)
 // blending the reflected surroundings over the screen content.
-vec3 glass(vec3 content) {
+vec3 glass(vec3 content, float light) {
   vec3 N = normalize(vWorldNormal);
   vec3 V = normalize(cameraPosition - vWorldPosition);
   vec3 R = reflect(-V, N);
   float fresnel = 0.04 + 0.96 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
   vec3 env = textureCube(uEnvMap, R, uGlassGloss).rgb;
   env = env / (1.0 + env); // simple tone mapping of the HDR surroundings
-  return mix(content, env, fresnel * uGlassStrength);
+  // the sheen dims with the light, so the dark side does not glow with reflections
+  float strength = uGlassStrength * mix(uGlassOnDark, 1.0, light);
+  return mix(content, env, fresnel * strength);
 }
 
 void main() {
@@ -124,13 +150,27 @@ void main() {
   // on a back screen the hinge edge is an outer edge of the closed phone: close the frame there too
   bool onHingeEdge = vIsBack > 0.5 && abs(vLocal.x - uHingeX) < uBezel;
 
-  vec3 content = vec3(0.0);
-  if (d <= -uBezel && !onHingeEdge) {
-    content = ((vIsBack > 0.5 && !uBackAsFront)
-      ? renderFace(vStretchClipBack, uBlackoutBack)
-      : renderFace(vStretchClip, uBlackout)).rgb;
+  // Lookup for this face, shifted by the refraction. The world-space shift is converted
+  // into a lookup shift with the screen-space derivatives (the Jacobian of uv vs local
+  // position), so it stays exact under the fold and the stretch. Computed before any
+  // branching, as derivatives require.
+  bool back = vIsBack > 0.5 && !uBackAsFront;
+  vec2 uv = lookupUv(back ? vStretchClipBack : vStretchClip);
+  mat2 dLocal = mat2(dFdx(vLocal.xy), dFdy(vLocal.xy)); // columns: d local / d screen x, y
+  mat2 dUv = mat2(dFdx(uv), dFdy(uv));
+  if (abs(determinant(dLocal)) > 1e-12) {                 // not edge-on
+    mat2 jacobian = dUv * inverse(dLocal);                // d uv / d local
+    uv += jacobian * refractionOffset();
   }
 
-  gl_FragColor = vec4(glass(content), 1.0); // the glass covers the bezel too
+  vec3 content = vec3(0.0);
+  float light = 1.0;
+  if (d <= -uBezel && !onHingeEdge) {
+    vec4 face = renderFace(uv, back ? uBlackoutBack : uBlackout);
+    content = face.rgb;
+    light = face.a;
+  }
+
+  gl_FragColor = vec4(glass(content, light), 1.0); // the glass covers the bezel too
   #include <colorspace_fragment>
 }
