@@ -5,9 +5,12 @@ import fragmentShader from './shaders/blur.frag?raw';
 export const BLUR_LEVELS = 6; // blur levels built by the post-process chain (shader samples 0..6)
 
 /**
- * Uniforms of one half's screens (updated per frame in book.js).
+ * Uniforms of one half's screens (the fold-driven ones are updated per frame in book.js).
  */
-export function createScreenUniforms(portal, { maxLevel, blurExp, blurExpand, blurSpread, blurRamp, fadeToBlack, darkSpread, darkExp, envMap, glassStrength, glassGloss }) {
+export function createScreenUniforms(portal, {
+  maxLevel, frostDistance, blurExp, blurExpand, frostColor, frostPerUnit, frostExp, frostStrength,
+  lightLossPerUnit, lightLossExp, envMap, glassStrength, glassGloss,
+}) {
   const levels = {};
   for (let i = 0; i <= BLUR_LEVELS; i++) {
     levels[`uLevel${i}`] = { value: portal.blurLevels[i] };
@@ -15,21 +18,20 @@ export function createScreenUniforms(portal, { maxLevel, blurExp, blurExpand, bl
   return {
     ...levels,
     uMaxLevel: { value: Math.min(maxLevel, BLUR_LEVELS) },
+    uFrostDistance: { value: frostDistance },
     uBlurExp: { value: blurExp },
     uBlurExpand: { value: blurExpand },
-    uBlurSpread: { value: blurSpread },
-    uBlurRamp: { value: blurRamp },
-    uBlurSigma0: { value: portal.blurSigma0 },
+    uFrostColor: { value: new THREE.Color(frostColor) },
+    uFrostPerUnit: { value: frostPerUnit },
+    uFrostExp: { value: frostExp },
+    uFrostStrength: { value: frostStrength },
+    uLightLossPerUnit: { value: lightLossPerUnit },
+    uLightLossExp: { value: lightLossExp },
+    uBlackout: { value: 0 },     // driven per frame by the fold, see book.js
+    uBlackoutBack: { value: 0 },
     uPortalViewProjection: { value: portal.viewProjection },
     uStretchMatrix: { value: new THREE.Matrix4() },
     uStretchMatrixBack: { value: new THREE.Matrix4() },
-    uFold: { value: 0 },
-    uFoldBack: { value: 0 },
-    uDarkProgress: { value: 0 },
-    uDarkProgressBack: { value: 0 },
-    uFadeToBlack: { value: fadeToBlack },
-    uDarkSpread: { value: darkSpread },
-    uDarkExp: { value: darkExp },
     uEnvMap: { value: envMap },
     uGlassStrength: { value: glassStrength },
     uGlassGloss: { value: glassGloss },
@@ -38,18 +40,21 @@ export function createScreenUniforms(portal, { maxLevel, blurExp, blurExpand, bl
 
 /**
  * Screen material for both large faces of the slab: shows the portal render (projected
- * through the fixed portal camera) blended between its pre-blurred levels along the pane,
- * fading to black, with a thin black outline following the rounded outer edges. The front is
- * measured from flat, the back from fully closed (the shader tells them apart by normal),
- * unless backAsFront is set: then the back simply shows the same view as the front, which
- * is what a half that never folds needs for its cover display.
+ * through the fixed portal camera) blended between its pre-blurred levels, and faded
+ * toward the frost tone, by the pixel's distance to its window plane (`windowZ`: where the face rests when flat
+ * against the window), with a thin black outline following the rounded outer edges. The front is measured from flat, the back from fully closed (the shader tells
+ * them apart by normal), unless backAsFront is set: then the back simply shows the same
+ * view as the front, which is what a half that never folds needs for its cover display.
  */
-export function createScreenMaterial(sharedUniforms, { hingeX, edgeX, halfHeight, cornerRadius, bezel, backAsFront = false }) {
+export function createScreenMaterial(sharedUniforms, {
+  hingeX, edgeX, halfHeight, cornerRadius, bezel, windowZ, backAsFront = false,
+}) {
   return new THREE.ShaderMaterial({
     vertexShader,
     fragmentShader,
     uniforms: {
       ...sharedUniforms,
+      uWindowZ: { value: windowZ },
       uHingeX: { value: hingeX },
       uEdgeX: { value: edgeX },
       uHalfHeight: { value: halfHeight },

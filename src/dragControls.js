@@ -95,7 +95,7 @@ export function createDragControls(domElement, {
     if (wasDrag) {
       domElement.releasePointerCapture?.(e.pointerId);
       domElement.classList.remove('dragging');
-      onEnd?.();
+      onEnd?.(half, !isTap);
     }
     if (isTap) onTap?.(half);
   };

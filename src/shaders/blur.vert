@@ -1,6 +1,7 @@
 uniform mat4 uPortalViewProjection; // fixed portal camera
 uniform mat4 uStretchMatrix;        // pane world matrix at the front's "virtual" fold angle
 uniform mat4 uStretchMatrixBack;    // pane world matrix at the back's "virtual" fold angle
+uniform float uWindowZ;             // world z of the window plane this face rests on when flat
 
 varying vec3 vLocal;                // position on the slab, in its local coordinates
 varying float vIsBack;              // 1 on the back screen, 0 on the front
@@ -17,8 +18,12 @@ void main() {
   vec4 worldPosition = modelMatrix * local;
   vWorldPosition = worldPosition.xyz;
   vWorldNormal = normalize(mat3(modelMatrix) * normal);
-  vPortalClip = uPortalViewProjection * worldPosition;
-  vStretchClip = uPortalViewProjection * uStretchMatrix * local;
-  vStretchClipBack = uPortalViewProjection * uStretchMatrixBack * local;
+  // Project through the portal camera as if this face lay on the portal image plane (z = 0)
+  // when flat: shift by its window plane, otherwise the face's height above that plane
+  // would magnify the lookup slightly and its edges would sample outside the display.
+  vec4 onWindow = vec4(0.0, 0.0, -uWindowZ, 0.0);
+  vPortalClip = uPortalViewProjection * (worldPosition + onWindow);
+  vStretchClip = uPortalViewProjection * (uStretchMatrix * local + onWindow);
+  vStretchClipBack = uPortalViewProjection * (uStretchMatrixBack * local + onWindow);
   gl_Position = projectionMatrix * viewMatrix * worldPosition;
 }

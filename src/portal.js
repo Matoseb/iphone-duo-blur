@@ -3,17 +3,18 @@ import { createBlurChain } from './blurChain.js';
 import { BLUR_LEVELS } from './blurMaterial.js';
 import imageVertex from './shaders/portalImage.vert?raw';
 import imageFragment from './shaders/portalImage.frag?raw';
+import glowFragment from './shaders/portalGlow.frag?raw';
 
 /**
  * The "portal": the unfolded image rendered ONCE from a fixed frontal camera at the phone's
- * default viewpoint, plus a chain of blurred versions of that render.
+ * default viewpoint, plus a chain of blurred versions of that render (the frosted window).
  *
  * Panes project their own surface through this same fixed camera to look up the texture,
  * so what a pane shows depends only on how it is folded, never on where the viewer is.
  * That is what a real foldable screen would do (it cannot track your eyes).
  */
 export function createPortal(renderer, {
-  fov, resolution = 2048, darkSpread = 1, darkExp = 1, fadeToBlack = 1,
+  fov, resolution = 2048, glowStrength = 0.5, glowResolution = 512, glowLevels = 6,
 }) {
   // Transparent background: alpha marks where the display is. The blur chain blurs color
   // and alpha together (premultiplied), so the panes can expand the image past its edges.
@@ -48,28 +49,18 @@ export function createPortal(renderer, {
   });
 
   const blur = createBlurChain(renderer, target.texture, size, BLUR_LEVELS);
-  let imageMaterial = null;
 
   return {
     scene,
     viewProjection,
-    /**
-     * Sigma of blur level 1 in distance-from-hinge units (1 = half the display width).
-     * The 9-tap Gaussian at half resolution is ~2.5 px of the full portal render; the
-     * display's half width fills 1 / FRAME_MARGIN of half the frame.
-     */
-    get blurSigma0() {
-      const halfFramePx = resolution / 2;
-      const halfWidthPx = halfFramePx / FRAME_MARGIN; // the display half width, in portal px
-      return 2.5 / halfWidthPx;
-    },
     /** Change the portal camera's field of view (call render() again afterwards). */
     setFov,
     get distance() { return camera.position.z; },
     blurLevels: blur.textures, // [sharp, blur 1, blur 2, ...]
     /**
      * Put the image in the portal scene, on the display area (the screen inside the bezel):
-     * fitted to cover it, clipped to its rounded corners.
+     * fitted to cover it, clipped to its rounded corners, with a big blurred halo of it
+     * behind, bleeding out in every direction.
      */
     setImage(texture, { halfWidth, halfHeight, radius }) {
       const imageAspect = texture.image.width / texture.image.height;
@@ -77,7 +68,7 @@ export function createPortal(renderer, {
       const uvScale = imageAspect > displayAspect
         ? new THREE.Vector2(displayAspect / imageAspect, 1) // image wider: crop the sides
         : new THREE.Vector2(1, imageAspect / displayAspect); // image taller: crop top/bottom
-      imageMaterial = new THREE.ShaderMaterial({
+      const imageMaterial = new THREE.ShaderMaterial({
         vertexShader: imageVertex,
         fragmentShader: imageFragment,
         uniforms: {
@@ -85,25 +76,41 @@ export function createPortal(renderer, {
           uUvScale: { value: uvScale },
           uHalfSize: { value: new THREE.Vector2(halfWidth, halfHeight) },
           uRadius: { value: radius },
-          uDarkLeft: { value: 0 },
-          uDarkRight: { value: 0 },
-          uDarkSpread: { value: darkSpread },
-          uDarkExp: { value: darkExp },
-          uFadeToBlack: { value: fadeToBlack },
         },
       });
       const plane = new THREE.Mesh(new THREE.PlaneGeometry(halfWidth * 2, halfHeight * 2), imageMaterial);
+      plane.renderOrder = 1; // on top of the halo (the render target has no depth buffer)
       scene.add(plane);
       planeHalfSize = Math.max(halfWidth, halfHeight);
+      const frameHalf = planeHalfSize * FRAME_MARGIN;
       setFov(camera.fov); // refit the frame to the plane
+
+      // Halo: render the masked image alone into a small frame-sized buffer and blur it far;
+      // premultiplied alpha makes it fade out away from the display.
+      const glowSize = new THREE.Vector2(glowResolution, glowResolution);
+      const glowSource = new THREE.WebGLRenderTarget(glowSize.x, glowSize.y, {
+        type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false,
+      });
+      const glowChain = createBlurChain(renderer, glowSource.texture, glowSize, glowLevels, 256);
+      const previous = renderer.getRenderTarget();
+      renderer.setRenderTarget(glowSource);
+      renderer.render(scene, camera);
+      renderer.setRenderTarget(previous);
+      glowChain.render();
+
+      const glowMaterial = new THREE.ShaderMaterial({
+        vertexShader: imageVertex,
+        fragmentShader: glowFragment,
+        uniforms: {
+          uGlow: { value: glowChain.textures[glowLevels] },
+          uStrength: { value: glowStrength },
+        },
+      });
+      const halo = new THREE.Mesh(new THREE.PlaneGeometry(frameHalf * 2, frameHalf * 2), glowMaterial);
+      halo.renderOrder = 0;
+      scene.add(halo);
     },
-    /** Darkness progress of each half (0..1), applied to the image before it is blurred. */
-    setDarkness(left, right) {
-      if (!imageMaterial) return;
-      imageMaterial.uniforms.uDarkLeft.value = left;
-      imageMaterial.uniforms.uDarkRight.value = right;
-    },
-    /** Render the portal and its blur levels: once, and again whenever the darkness changes. */
+    /** Render the portal and its blur levels. Needed once, and again after setFov()/setImage(). */
     render() {
       const previous = renderer.getRenderTarget();
       renderer.setRenderTarget(target);

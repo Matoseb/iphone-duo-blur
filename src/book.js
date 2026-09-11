@@ -13,7 +13,9 @@ const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2
  * surface at the center line, so when closed the two slabs stack instead of intersecting.
  */
 function createHalf(portal, side, {
-  halfWidth, height, thickness, cornerRadius, edgeChamfer, bezel, backScreen, foldable, maxLevel, blurExp, blurExpand, blurSpread, blurRamp, fadeToBlack, darkSpread, darkExp, darkEndDeg,
+  halfWidth, height, thickness, cornerRadius, edgeChamfer, bezel, backScreen, foldable,
+  maxLevel, frostDistance, blurExp, blurExpand, frostColor, frostPerUnit, frostExp, frostStrength,
+  lightLossPerUnit, lightLossExp, blackoutStartDeg, blackoutEndDeg,
   stretchMaxDeg, stretchStartDeg, stretchEndDeg, envMap, glassStrength, glassGloss,
 }) {
   // the hinge is at +x for the left half and -x for the right half
@@ -21,13 +23,21 @@ function createHalf(portal, side, {
     width: halfWidth, height, thickness, cornerRadius, edgeChamfer, hingeSide: -side,
   });
 
-  const shared = createScreenUniforms(portal, { maxLevel, blurExp, blurExpand, blurSpread, blurRamp, fadeToBlack, darkSpread, darkExp, envMap, glassStrength, glassGloss });
+  const shared = createScreenUniforms(portal, {
+    maxLevel, frostDistance, blurExp, blurExpand, frostColor, frostPerUnit, frostExp, frostStrength,
+    lightLossPerUnit, lightLossExp, envMap, glassStrength, glassGloss,
+  });
+  // Frosted windows: the plane each face rests on when flat against the image.
+  // Front: the hinge axis plane (z = thickness / 2). Back of a folding half: the top of the
+  // closed stack (one thickness higher). Back of a static half: its own back surface.
+  const hingeZ = thickness / 2;
+  const backWindowZ = foldable ? hingeZ + thickness : hingeZ - thickness;
   const chrome = createChromeMaterial();
   const materials = [
-    createScreenMaterial(shared, { ...screen, bezel }), // group 0: front screen
-    chrome,                                             // group 1: the rim
-    backScreen                                          // group 2: back, a cover display or plain body
-      ? createScreenMaterial(shared, { ...screen, bezel, backAsFront: !foldable })
+    createScreenMaterial(shared, { ...screen, bezel, windowZ: hingeZ }), // group 0: front screen
+    chrome,                                                             // group 1: the rim
+    backScreen                                                          // group 2: back, a cover display or plain body
+      ? createScreenMaterial(shared, { ...screen, bezel, windowZ: backWindowZ, backAsFront: !foldable })
       : chrome,
   ];
 
@@ -57,7 +67,10 @@ function createHalf(portal, side, {
   const max = THREE.MathUtils.degToRad(stretchMaxDeg);
   const start = THREE.MathUtils.degToRad(stretchStartDeg);
   const end = THREE.MathUtils.degToRad(stretchEndDeg);
-  const darkEnd = THREE.MathUtils.degToRad(darkEndDeg);
+  const blackoutStart = THREE.MathUtils.degToRad(blackoutStartDeg);
+  const blackoutEnd = THREE.MathUtils.degToRad(blackoutEndDeg);
+  // the display switches off between the two blackout angles, fully black past the end
+  const blackoutAt = (a) => THREE.MathUtils.smoothstep(a, blackoutStart, blackoutEnd);
   // horizontal stretch: virtual angle rising along a quarter sine between start and end
   const virtualAngleFor = (a) => {
     const progress = THREE.MathUtils.clamp((a - start) / (end - start), 0, 1);
@@ -73,7 +86,6 @@ function createHalf(portal, side, {
     grabZone,
     fold: 0,    // eased value actually displayed
     target: 0,  // value the drag / toggle is aiming for
-    darkProgress: 0, // front darkness (0..1), applied in the portal image before the blur
     tween: null, // { from, to, elapsed, duration } while an open/close animation runs
     /** Start an eased animation of the fold toward `to` (cancels any running one). */
     animateTo(to, duration) {
@@ -99,13 +111,10 @@ function createHalf(portal, side, {
       // rotate toward the camera: the right half needs a negative angle, the left a positive one
       const angle = half.fold * MAX_ANGLE;
       hinge.rotation.y = -side * angle;
-      // the back runs the same effect measured from fully closed (180°)
+      // the back runs the same stretch and blackout measured from fully closed (180°)
       const backAngle = Math.PI - angle;
-      shared.uFold.value = half.fold;
-      shared.uFoldBack.value = THREE.MathUtils.clamp(backAngle / MAX_ANGLE, 0, 1);
-      half.darkProgress = Math.min(1, angle / darkEnd);
-      shared.uDarkProgress.value = half.darkProgress;
-      shared.uDarkProgressBack.value = Math.min(1, backAngle / darkEnd);
+      shared.uBlackout.value = blackoutAt(angle);
+      shared.uBlackoutBack.value = blackoutAt(backAngle);
       // front: virtual angle opens from flat; back: virtual angle opens from closed (180°)
       poseAt(shared.uStretchMatrix.value, virtualAngleFor(angle));
       poseAt(shared.uStretchMatrixBack.value, Math.PI - virtualAngleFor(backAngle));
@@ -121,14 +130,17 @@ function createHalf(portal, side, {
  */
 export function createBook(portal, {
   width, height, thickness = 0.05, cornerRadius = 0.15, edgeChamfer = 0, bezel = 0.02,
-  maxLevel, blurExp = 1, blurExpand = 0, blurSpread = 0, blurRamp = 0, fadeToBlack = 1, darkSpread = 1, darkExp = 1, darkEndDeg = 180,
+  maxLevel, frostDistance = 1, blurExp = 1, blurExpand = 0,
+  frostColor = 0x9a9a9a, frostPerUnit = 1, frostExp = 1, frostStrength = 0, lightLossPerUnit = 0, lightLossExp = 1,
+  blackoutStartDeg = 180, blackoutEndDeg = 180,
   stretchMaxDeg = 0, stretchStartDeg = 0, stretchEndDeg = 180,
   foldable = { left: true, right: true }, backScreen = { left: true, right: true },
   envMap = null, glassStrength = 1, glassGloss = 1,
 }) {
   const group = new THREE.Group();
   const params = {
-    halfWidth: width / 2, height, thickness, cornerRadius, edgeChamfer, bezel, maxLevel, blurExp, blurExpand, blurSpread, blurRamp, fadeToBlack, darkSpread, darkExp, darkEndDeg,
+    halfWidth: width / 2, height, thickness, cornerRadius, edgeChamfer, bezel, maxLevel, frostDistance, blurExp, blurExpand,
+    frostColor, frostPerUnit, frostExp, frostStrength, lightLossPerUnit, lightLossExp, blackoutStartDeg, blackoutEndDeg,
     stretchMaxDeg, stretchStartDeg, stretchEndDeg, envMap, glassStrength, glassGloss,
   };
 

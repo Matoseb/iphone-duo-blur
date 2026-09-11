@@ -14,22 +14,28 @@ const EDGE_CHAMFER = 0.01;     // small chamfer on every edge between the faces 
 const BEZEL = 0.04;            // black outline along the three outer edges of each display (world units)
 const GLASS_REFLECTION = 1;    // 0..1, strength of the glass reflection on the screens
 const GLASS_GLOSS = 1;         // 0 = mirror sharp reflection, higher = blurrier (mip levels)
-const MAX_BLUR_LEVEL = 25;      // 0..6, blur strength at the outer edge of a fully folded pane (each level doubles the radius)
-const BLUR_EXP = 0.75;         // shape of the blur along the pane: 1 = linear, < 1 = strong early, > 1 = slow start
+const MAX_BLUR_LEVEL = 6;      // 0..6, blur reached at FROST_DISTANCE from the window (each level doubles the radius)
+const FROST_DISTANCE = 1.2;    // frosted window: distance (world units) from the window plane at which the blur is maximal
+const BLUR_EXP = 1;            // blur vs distance: 1 = linear, < 1 = quick start, > 1 = slow start
 const BLUR_EXPAND = 0;         // 0..1: how far the blurred image spreads past its edges instead of darkening them
-const BLUR_SPREAD = 1.5;       // scatter: how far a blurred zone bleeds into sharper zones (0 = gather only, 1 = ~2 sigma)
-const BLUR_RAMP = 0.01;         // S-curve: the blur rises smoothly from 0 at the hinge to full over this fraction of the half
-const FADE_TO_BLACK = 1;       // 0..1, how dark the pane gets at the far end of the fade
-const DARK_END_DEG = 120;      // fold angle at which the whole pane is dark
-const DARK_SPREAD = 2;         // how much the outer edge leads the hinge (1 = the gradient spans the whole pane)
-const DARK_EXP = .8;            // shape of the darkening: 1 = as is, 2 = exponential-like (slow start, steep end)
+const FROST_COLOR = 0x9a9a9a;  // diffuse tone of the frosted glass the image fades toward with distance
+const FROST_PER_UNIT = 1.2;    // rate of the fade toward that tone per world unit of distance (exponential decay)
+const FROST_EXP = 1.3;         // shape: 1 = pure exponential, > 1 = slow start
+const FROST_STRENGTH = 1;      // 0 = no fade, 1 = can reach the frost tone completely
+const LIGHT_LOSS_PER_UNIT = 2.4 * .8; // light attenuation rate per world unit of distance (exponential: far edge upright < 1% left)
+const LIGHT_LOSS_EXP = 1.2 * 1.2;      // shape: 1 = pure exponential, > 1 = slow start, never a hard cut-off
+const BLACKOUT_START_DEG = 100; // the display starts switching off at this fold angle...
+const BLACKOUT_END_DEG = 125;   // ...and is fully black from this angle on (back: measured from closed)
 const STRETCH_MAX_DEG = 90;    // virtual fold angle used for the horizontal stretch at full strength (< 90)
 const STRETCH_START_DEG = 0;   // real fold angle where the stretch starts
-const STRETCH_END_DEG = 180;   // real fold angle where the stretch reaches full strength and stays
+const STRETCH_END_DEG = 130;   // real fold angle where the stretch reaches full strength and stays
 const FOLLOW_RATE = 8;        // per second: how quickly the pane catches up with the finger while dragging
 const TOGGLE_DURATION = 0.9;   // seconds: open / close animation on tap (ease in-out)
-const CAMERA_FOV = 40;
+const SNAP_ANGLE = 8;          // degrees: releasing a drag this close to fully open / closed snaps to it (detent)
+const SNAP_DURATION = 0.3;     // seconds: the snap animation
+const CAMERA_FOV = 34;
 const PORTAL_FOV = 30;         // inner camera the screens show the image from: wide = strong perspective, narrow = flat
+const PORTAL_GLOW = 0.5;       // brightness of the big blurred halo of the image behind the display (0 = none)
 const FIT_PADDING = 0.08;      // fraction of the viewport kept clear around the open phone (object-fit: contain)
 const MAX_PHONE_PX = 900;      // the open phone never gets larger than this on screen (CSS px, larger side)
 
@@ -77,7 +83,7 @@ function fitDistance(width, height) {
 
 // portal: the unfolded image seen from a FIXED camera at the same default viewpoint.
 // The panes are screens showing that view; they never know where the real viewer is.
-const portal = createPortal(renderer, { fov: PORTAL_FOV, darkSpread: DARK_SPREAD, darkExp: DARK_EXP, fadeToBlack: FADE_TO_BLACK });
+const portal = createPortal(renderer, { fov: PORTAL_FOV, glowStrength: PORTAL_GLOW });
 
 let onResize = () => {};
 window.addEventListener('resize', () => {
@@ -103,14 +109,17 @@ async function init() {
     edgeChamfer: EDGE_CHAMFER,
     bezel: BEZEL,
     maxLevel: MAX_BLUR_LEVEL,
+    frostDistance: FROST_DISTANCE,
     blurExp: BLUR_EXP,
     blurExpand: BLUR_EXPAND,
-    blurSpread: BLUR_SPREAD,
-    blurRamp: BLUR_RAMP,
-    fadeToBlack: FADE_TO_BLACK,
-    darkSpread: DARK_SPREAD,
-    darkExp: DARK_EXP,
-    darkEndDeg: DARK_END_DEG,
+    frostColor: FROST_COLOR,
+    frostPerUnit: FROST_PER_UNIT,
+    frostExp: FROST_EXP,
+    frostStrength: FROST_STRENGTH,
+    lightLossPerUnit: LIGHT_LOSS_PER_UNIT,
+    lightLossExp: LIGHT_LOSS_EXP,
+    blackoutStartDeg: BLACKOUT_START_DEG,
+    blackoutEndDeg: BLACKOUT_END_DEG,
     stretchMaxDeg: STRETCH_MAX_DEG,
     stretchStartDeg: STRETCH_START_DEG,
     stretchEndDeg: STRETCH_END_DEG,
@@ -133,7 +142,10 @@ async function init() {
     resolve: (object) => book.halfOf(object),
     arcFor: (half, point) => book.arcFor(half, point),
     onStart: () => { orbit.enabled = false; },
-    onEnd: () => { orbit.enabled = true; },
+    onEnd: (half, wasDrag) => {
+      orbit.enabled = true;
+      if (wasDrag) snap(half);
+    },
     onFold: (half, fold) => {
       half.tween = null; // a drag takes over from any running animation
       half.target = THREE.MathUtils.clamp(fold, 0, book.maxTargetFor(half));
@@ -146,6 +158,14 @@ async function init() {
       half.animateTo(to, TOGGLE_DURATION);
     },
   });
+
+  // Detent: a drag released within SNAP_ANGLE of fully open or fully closed settles there.
+  function snap(half) {
+    const max = book.maxTargetFor(half);
+    const angle = half.target * 180;
+    if (angle <= SNAP_ANGLE) half.animateTo(0, SNAP_DURATION);
+    else if (angle >= max * 180 - SNAP_ANGLE) half.animateTo(max, SNAP_DURATION);
+  }
 
   // Optional starting state, e.g. ?left=0.6
   const value = parseFloat(new URLSearchParams(location.search).get('left'));
@@ -170,25 +190,13 @@ async function init() {
   }
   fit();
   onResize = fit;
-  portal.render();
-
-  // the front screens' fade to black is baked into the portal image before the blur,
-  // so the portal (and its blur levels) is re-rendered whenever that darkness changes
-  let lastDark = [-1, -1];
-  function updatePortalDarkness() {
-    const dark = book.halves.map((h) => h.darkProgress);
-    if (dark[0] === lastDark[0] && dark[1] === lastDark[1]) return;
-    lastDark = dark;
-    portal.setDarkness(dark[0], dark[1]);
-    portal.render();
-  }
+  portal.render(); // once: the frosted window never changes
 
   const clock = new THREE.Clock();
   renderer.setAnimationLoop(() => {
     const dt = Math.min(clock.getDelta(), 0.1); // clamp after a tab switch / stall
     orbit.update();
     for (const half of book.halves) half.update(dt, FOLLOW_RATE);
-    updatePortalDarkness();
     renderer.render(scene, camera);
   });
 }

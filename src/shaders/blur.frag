@@ -1,6 +1,14 @@
 // Pane rendering the portal. The pane is a screen: it shows what a viewer at the FIXED
 // portal viewpoint would see through it (projective lookup into the portal render), so the
-// content and the blur are glued to the pane and do not react to the orbit camera.
+// content is glued to the pane and does not react to the orbit camera.
+//
+// Frosted window model: the portal render is a frosted window and the pane is a sheet held
+// against it at an angle. The blur, and the fade toward the glass's diffuse tone, of each
+// pixel follow its physical distance to that window: zero along the hinge, growing along
+// the pane and with the fold. Past a fold angle the display switches off (black). The
+// front's window is the flat position; the folding half's back rests on the closed
+// position, so it is crisp when fully closed.
+//
 // Both faces run the effect: the front measured from flat (0°), the back measured from
 // fully closed (180°), where it lies over the other half and shows that side of the image.
 uniform sampler2D uLevel0;
@@ -10,24 +18,24 @@ uniform sampler2D uLevel3;
 uniform sampler2D uLevel4;
 uniform sampler2D uLevel5;
 uniform sampler2D uLevel6;
-uniform float uMaxLevel;         // highest level reached at full fold (0..6)
-uniform float uBlurExp;          // exponent shaping the blur along the pane: 1 = linear, > 1 = exponential ramp
+uniform float uMaxLevel;         // blur level reached at uFrostDistance (0..6)
+uniform float uFrostDistance;    // distance from the window (world units) at which the blur is maximal
+uniform float uBlurExp;          // shape of blur vs distance: 1 = linear, > 1 = slow start, < 1 = quick start
+uniform float uWindowZ;          // world z of the frosted window this face rests on when flat against it
+uniform vec3 uFrostColor;        // diffuse tone of the frosted glass the image fades toward with distance
+uniform float uFrostPerUnit;     // rate of the fade toward that tone per world unit of distance (exponential)
+uniform float uFrostExp;         // shape: 1 = pure exponential, > 1 = slow start (Gaussian-like at 2)
+uniform float uFrostStrength;    // 0 = no fade, 1 = can reach the frost tone completely
+uniform float uLightLossPerUnit; // attenuation rate of the light per world unit of distance (exponential)
+uniform float uLightLossExp;     // shape: 1 = pure exponential, > 1 = slow start (Gaussian-like at 2)
+uniform float uBlackout;         // front: 0 = display on, 1 = fully black (past the blackout angle)
+uniform float uBlackoutBack;     // back: same, measured from fully closed
 uniform float uBlurExpand;       // 0 = blur darkens the edges (black bleeds in), 1 = blurred image expands outward
-uniform float uBlurSpread;       // scatter: how far a blurred zone bleeds into sharper zones (0 = none, 1 = ~2 sigma)
-uniform float uBlurRamp;         // S-curve envelope: the blur rises smoothly from 0 at the hinge to full over this fraction of the half
-uniform float uBlurSigma0;       // sigma of blur level 0->1, in distance-from-hinge units (1 = half the phone width)
 uniform float uHingeX;           // local x of the hinge edge of the screen
 uniform float uEdgeX;            // local x of the outer edge of the screen
 uniform float uHalfHeight;       // local half height of the screen
 uniform float uCornerRadius;     // radius of the rounded outer corners
 uniform float uBezel;            // width of the black outline along the three outer edges
-uniform float uFold;             // front: 0 = flat, 1 = closed
-uniform float uFoldBack;         // back: 0 = closed, 1 = flat
-uniform float uFadeToBlack;      // 0 = none, 1 = fully black
-uniform float uDarkProgress;     // front: 0 = no darkness, 1 = whole pane dark
-uniform float uDarkProgressBack; // back: same, measured from closed
-uniform float uDarkSpread;       // how far the outer edge leads the hinge
-uniform float uDarkExp;          // exponent shaping the darkening: 1 = as is, > 1 = slow start, steep end
 uniform bool uBackAsFront;       // back screen of a half that never folds: same view as the front
 uniform samplerCube uEnvMap;     // surroundings reflected by the glass (linear HDR)
 uniform float uGlassStrength;    // 0 = no reflection, 1 = physically plausible glass
@@ -51,53 +59,18 @@ float sdRoundedBox(vec2 p, vec2 b, float r) {
   return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
 }
 
-// blur level at a given distance from the hinge (0 hinge .. 1 outer edge) for a fold amount
-float levelAt(float distanceFromHinge, float fold) {
-  float amount = pow(fold * distanceFromHinge, uBlurExp);          // 0 .. 1, shaped by the exponent
-  // blur radius doubles per level, so use a log curve to make the radius grow linearly
-  return log2(1.0 + amount * (exp2(uMaxLevel) - 1.0));
-}
-
-// how far (in distance-from-hinge units) the blur of a given level reaches out: ~2 sigma
-float reachOf(float level) {
-  return uBlurSpread * 2.0 * uBlurSigma0 * exp2(level);
-}
-
-// Scatter instead of gather: the blur is not "edge aware". Find the outermost zone whose
-// blur reaches back to this pixel and adopt its (stronger) level. Scanning from the outer
-// edge inward and interpolating the exact crossing keeps the result continuous (no bands).
-float spreadLevel(float d, float fold) {
-  float level = levelAt(d, fold);
-  if (uBlurSpread <= 0.0 || d >= 1.0) return level;
-  const int STEPS = 32;
-  float prevD = 1.0;
-  float prevG = 0.0;
-  for (int i = 0; i <= STEPS; i++) {
-    float d2 = 1.0 - float(i) / float(STEPS) * (1.0 - d);   // from the outer edge down to d
-    float g = d2 - reachOf(levelAt(d2, fold));              // innermost point that zone reaches
-    if (g <= d) {
-      float dStar = d2;
-      if (i > 0) dStar = mix(prevD, d2, (prevG - d) / max(prevG - g, 1e-6)); // exact crossing
-      return max(level, levelAt(dStar, fold));
-    }
-    prevD = d2;
-    prevG = g;
-  }
-  return level;
-}
-
-vec4 renderFace(vec4 stretchClip, float fold, float darkProgress, bool fadeHere) {
+vec4 renderFace(vec4 stretchClip, float blackout) {
   // Horizontal: projection at the virtual fold angle (stretch). Vertical: real projection.
   vec2 folded = vPortalClip.xy / vPortalClip.w;
   vec2 stretched = stretchClip.xy / stretchClip.w;
   vec2 uv = vec2(stretched.x, folded.y) * 0.5 + 0.5;
   if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return vec4(0.0, 0.0, 0.0, 1.0);
 
-  float distanceFromHinge = clamp((vLocal.x - uHingeX) / (uEdgeX - uHingeX), 0.0, 1.0);
-  // S-curve envelope on top of the spread: zero (and flat) at the hinge, full strength past
-  // uBlurRamp. The spread alone would drag the full blur right up to the hinge and leave a
-  // visible step; the envelope turns that into a smooth rise with no visible onset.
-  float level = spreadLevel(distanceFromHinge, fold) * smoothstep(0.0, uBlurRamp, distanceFromHinge);
+  // frosted window: blur grows with the distance between this pixel and the window plane
+  float distance = abs(vWorldPosition.z - uWindowZ);
+  float amount = pow(clamp(distance / uFrostDistance, 0.0, 1.0), uBlurExp);
+  // blur radius doubles per level, so use a log curve to make the radius grow linearly
+  float level = log2(1.0 + amount * (exp2(uMaxLevel) - 1.0));
 
   // premultiplied color + alpha (alpha = how much of the display the blur kernel covered)
   vec4 blurred =
@@ -114,19 +87,19 @@ vec4 renderFace(vec4 stretchClip, float fold, float darkProgress, bool fadeHere)
   float alpha = blurred.a;
   vec3 unpremultiplied = blurred.rgb / max(alpha, 1e-4);
   float coverage = smoothstep(0.0, 1.0, min(1.0, alpha / mix(1.0, 0.04, uBlurExpand)));
-  vec4 color = vec4(unpremultiplied * coverage, 1.0);
 
-  // Darkness gradient across the pane, outer edge leading, deepening with the fold.
-  // Front screens get it in the portal image, before the blur (see portalImage.frag);
-  // back screens apply it here, after the blur.
-  float fade = 0.0;
-  if (fadeHere) {
-    float g = uDarkSpread;
-    fade = darkProgress * (1.0 + g) - g * (1.0 - distanceFromHinge);
-    fade = pow(smoothstep(0.0, 1.0, fade), uDarkExp) * uFadeToBlack;
-  }
+  // Real frosted glass: the farther from the window, the more the image loses contrast
+  // toward the glass's own diffuse tone (not toward black).
+  // Both follow an exponential decay with distance (like attenuation along a light guide):
+  // smooth everywhere, never a hard cut-off.
+  float frost = (1.0 - exp(-pow(distance * uFrostPerUnit, uFrostExp))) * uFrostStrength;
+  vec3 color = mix(unpremultiplied * coverage, uFrostColor, frost);
+  // ...and less light makes it through: the light fades out with distance
+  float light = exp(-pow(distance * uLightLossPerUnit, uLightLossExp));
+  color *= light;
 
-  return vec4(color.rgb * (1.0 - fade), 1.0);
+  // and past the blackout angle the display is simply off
+  return vec4(color * (1.0 - blackout), 1.0);
 }
 
 // Glass on top of the display: Schlick Fresnel (4% head-on, up to 100% at grazing angles)
@@ -154,8 +127,8 @@ void main() {
   vec3 content = vec3(0.0);
   if (d <= -uBezel && !onHingeEdge) {
     content = ((vIsBack > 0.5 && !uBackAsFront)
-      ? renderFace(vStretchClipBack, uFoldBack, uDarkProgressBack, true)
-      : renderFace(vStretchClip, uFold, uDarkProgress, false)).rgb;
+      ? renderFace(vStretchClipBack, uBlackoutBack)
+      : renderFace(vStretchClip, uBlackout)).rgb;
   }
 
   gl_FragColor = vec4(glass(content), 1.0); // the glass covers the bezel too
