@@ -36,8 +36,8 @@ const GLASS_ON_DARK = 0.35;      // how much reflection sheen remains where the 
 const BLACKOUT_START_DEG = 100; // the display starts switching off at this fold angle...
 const BLACKOUT_END_DEG = 125;   // ...and is fully black from this angle on (back: measured from closed)
 const PERSPECTIVE = 1;         // 0 = flat lookup (the pane's own slice), 1 = real projection of the folded pane from the front
-const VIEW_TRACK = 0;          // 1 = the lookup is traced from the eye below (fold-dependent), 0 = frontal-only perspective
-const VIEW_FOLLOW = .4       // the eye swings around the phone by this fraction of the hinge angle (0.3: 27° at a 90° fold)
+const VIEW_TRACK = 1;          // 1 = the lookup is traced from the eye below (fold-dependent), 0 = frontal-only perspective
+const VIEW_FOLLOW = .2       // the eye swings around the phone by this fraction of the hinge angle (0.3: 27° at a 90° fold)
 const VIEW_TRACK_START_DEG = 0; // the traced lookup is off below this fold angle...
 const VIEW_TRACK_END_DEG = 90;   // ...and fully on (VIEW_TRACK) from this angle (back: measured from closed)
 const VIEW_TRACK_EXP = 0.5;        // shape of that sine ease-in: 1 = plain, > 1 = later and sharper, < 1 = earlier

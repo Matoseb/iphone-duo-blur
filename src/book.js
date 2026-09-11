@@ -35,11 +35,15 @@ function createHalf(portal, side, {
 
   const chrome = createChromeMaterial();
   // the inner screens are matte, the cover display on the back is glossy glass
+  // which side of the hinge each face's picture is on: the front its own side; the cover
+  // display of a folding half lies over the other half when closed, so the other side
   const materials = [
-    createScreenMaterial(shared, { ...screen, bezel, windowZ: hingeZ, ...matte }), // group 0: front screen
-    chrome,                                                                        // group 1: the rim
-    backScreen                                                                     // group 2: back, a cover display or plain body
-      ? createScreenMaterial(shared, { ...screen, bezel, windowZ: backWindowZ, backAsFront: !foldable, ...glass })
+    createScreenMaterial(shared, { ...screen, bezel, windowZ: hingeZ, lookupSide: side, ...matte }), // group 0: front screen
+    chrome,                                                                                          // group 1: the rim
+    backScreen                                                                                       // group 2: back, a cover display or plain body
+      ? createScreenMaterial(shared, {
+        ...screen, bezel, windowZ: backWindowZ, backAsFront: !foldable, lookupSide: foldable ? -side : side, ...glass,
+      })
       : chrome,
   ];
 

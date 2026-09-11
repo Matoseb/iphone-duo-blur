@@ -56,7 +56,7 @@ export function createScreenUniforms(portal, {
  * view as the front, which is what a half that never folds needs for its cover display.
  */
 export function createScreenMaterial(sharedUniforms, {
-  hingeX, edgeX, halfHeight, cornerRadius, bezel, windowZ, backAsFront = false,
+  hingeX, edgeX, halfHeight, cornerRadius, bezel, windowZ, lookupSide, backAsFront = false,
   reflection = 1, gloss = 1, // surface finish: glossy glass (1, 1) or matte (weak, very blurred)
 }) {
   return new THREE.ShaderMaterial({
@@ -73,6 +73,7 @@ export function createScreenMaterial(sharedUniforms, {
       uCornerRadius: { value: cornerRadius },
       uBezel: { value: bezel },
       uBackAsFront: { value: backAsFront },
+      uLookupSide: { value: lookupSide },
     },
   });
 }

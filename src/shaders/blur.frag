@@ -34,6 +34,7 @@ uniform float uBlackout;         // front: 0 = display on, 1 = fully black (past
 uniform float uBlackoutBack;     // back: same, measured from fully closed
 uniform float uBlurExpand;       // 0 = blur darkens the edges (black bleeds in), 1 = blurred image expands outward
 uniform float uPerspective;      // 0 = flat lookup (the pane's own slice), 1 = real projection of the folded pane from the front
+uniform float uLookupSide;       // which side of the hinge this face's picture lives on (-1 = x < 0, +1 = x > 0)
 uniform float uViewTrack;        // front: 0 = lookup made for the frontal viewpoint, 1 = traced from the moving eye (ramps with the angle)
 uniform float uViewTrackBack;    // back: same, measured from fully closed
 uniform mat4 uPortalViewProjection; // fixed portal camera (to project the traced point)
@@ -75,8 +76,15 @@ float sdRoundedBox(vec2 p, vec2 b, float r) {
 
 // Portal lookup of this face, made for the frontal viewpoint: between the flat lookup (the
 // pane's own slice of the picture) and the real projection of the folded pane (uPerspective).
+// Past 90° a pane leans over the hinge and would read the other half's picture, mirrored:
+// keep the lookup on this face's own side of the hinge (the hinge is x = 0 of the frame).
+float ownSide(float x) {
+  return uLookupSide < 0.0 ? min(x, 0.0) : max(x, 0.0);
+}
+
 vec2 fixedLookupUv(vec4 flatClip) {
   vec2 folded = vPortalClip.xy / vPortalClip.w;
+  folded.x = ownSide(folded.x);
   vec2 resting = flatClip.xy / flatClip.w;
   return mix(resting, folded, uPerspective) * 0.5 + 0.5;
 }
@@ -89,6 +97,7 @@ vec2 viewLookupUv() {
   float vz = abs(V.z) < 1e-4 ? (V.z < 0.0 ? -1e-4 : 1e-4) : V.z;
   float t = (uWindowZ - vWorldPosition.z) / vz;
   vec3 hit = vWorldPosition + V * t;                 // on the window plane
+  hit.x = ownSide(hit.x);
   vec4 clip = uPortalViewProjection * vec4(hit.x, hit.y, 0.0, 1.0); // window plane <-> image plane
   return clip.xy / clip.w * 0.5 + 0.5;
 }
