@@ -18,8 +18,8 @@ const MATTE_REFLECTION = 0.3;  // inner screens: weak, diffuse sheen instead of 
 const MATTE_GLOSS = 6;         // inner screens: very blurred reflection (mip levels)
 const GLASS_THICKNESS = 0.03;  // glass layer over the displays (world units): refraction shifts the image at angles
 const GLASS_IOR = 1.5;         // index of refraction of that glass
-const MAX_BLUR_LEVEL = 6;      // 0..6, blur reached at FROST_DISTANCE from the window (each level doubles the radius)
-const FROST_DISTANCE = 1.2;    // frosted window: distance (world units) from the window plane at which the blur is maximal
+const MAX_BLUR_LEVEL = 5.3;      // 0..6, blur reached at FROST_DISTANCE from the window (each level doubles the radius)
+const FROST_DISTANCE = 1.2 * .9;    // frosted window: distance (world units) from the window plane at which the blur is maximal
 const BLUR_EXP = 1;            // blur vs distance: 1 = linear, < 1 = quick start, > 1 = slow start
 const BLUR_EXPAND = 0;         // 0..1: how far the blurred image spreads past its edges instead of darkening them
 const FROST_COLOR = 0x9a9a9a;  // diffuse tone of the frosted glass the image fades toward with distance
@@ -32,9 +32,12 @@ const LIGHT_BLACK_POINT = 0.06;  // light below this fraction clips to true blac
 const GLASS_ON_DARK = 0.35;      // how much reflection sheen remains where the light is gone (0 = none)
 const BLACKOUT_START_DEG = 100; // the display starts switching off at this fold angle...
 const BLACKOUT_END_DEG = 125;   // ...and is fully black from this angle on (back: measured from closed)
-const STRETCH_MAX_DEG = 90;    // virtual fold angle used for the horizontal stretch at full strength (< 90)
-const STRETCH_START_DEG = 0;   // real fold angle where the stretch starts
-const STRETCH_END_DEG = 130;   // real fold angle where the stretch reaches full strength and stays
+const STRETCH_MAX_DEG = 85;    // horizontal lookup angle cap (< 90, where the projection collapses); 0 = no stretch at all
+const STRETCH_START_DEG = 0;   // stylized mode only: real fold angle where the stretch starts
+const STRETCH_END_DEG = 130;   // stylized mode only: real fold angle where the stretch reaches full strength
+const STRETCH_TRACK = true;    // true = physical: the lookup follows the real fold angle (counter stretch: the picture
+                               // stays in place as seen from the portal viewpoint); false = stylized sine ramp
+const PERSPECTIVE = 1;         // vertical: 0 = flat lookup (no wedges), 1 = full projection of the fold through the portal camera
 const FOLLOW_RATE = 8;        // per second: how quickly the pane catches up with the finger while dragging
 const TOGGLE_DURATION = 0.9;   // seconds: open / close animation on tap (ease in-out)
 const SNAP_ANGLE = 8;          // degrees: releasing a drag this close to fully open / closed snaps to it (detent)
@@ -137,6 +140,8 @@ async function init() {
     stretchMaxDeg: STRETCH_MAX_DEG,
     stretchStartDeg: STRETCH_START_DEG,
     stretchEndDeg: STRETCH_END_DEG,
+    stretchTrack: STRETCH_TRACK,
+    perspective: PERSPECTIVE,
     foldable: { left: true, right: false },
     backScreen: { left: true, right: false }, // 3 displays: both fronts + the left back (shows the image as it closes); right back is chrome
     envMap: envCube.texture,

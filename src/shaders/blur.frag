@@ -33,6 +33,7 @@ uniform float uGlassOnDark;      // how much of the reflection sheen remains whe
 uniform float uBlackout;         // front: 0 = display on, 1 = fully black (past the blackout angle)
 uniform float uBlackoutBack;     // back: same, measured from fully closed
 uniform float uBlurExpand;       // 0 = blur darkens the edges (black bleeds in), 1 = blurred image expands outward
+uniform float uPerspective;      // vertical: 0 = flat lookup (no wedges), 1 = real projection of the fold through the portal camera
 uniform float uHingeX;           // local x of the hinge edge of the screen
 uniform float uEdgeX;            // local x of the outer edge of the screen
 uniform float uHalfHeight;       // local half height of the screen
@@ -54,6 +55,8 @@ varying vec3 vTangentY;
 varying vec4 vPortalClip;
 varying vec4 vStretchClip;
 varying vec4 vStretchClipBack;
+varying vec4 vFlatClip;
+varying vec4 vFlatClipBack;
 
 float weight(float level, float i) {
   return max(0.0, 1.0 - abs(level - i));
@@ -65,12 +68,14 @@ float sdRoundedBox(vec2 p, vec2 b, float r) {
   return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
 }
 
-// Portal lookup of this face. Horizontal: projection at the virtual fold angle (stretch).
-// Vertical: real projection.
-vec2 lookupUv(vec4 stretchClip) {
+// Portal lookup of this face. Horizontal: projection at the virtual fold angle (stretch;
+// none when the virtual angle is 0). Vertical: between the flat lookup and the real
+// projection of the fold (uPerspective).
+vec2 lookupUv(vec4 stretchClip, vec4 flatClip) {
   vec2 folded = vPortalClip.xy / vPortalClip.w;
   vec2 stretched = stretchClip.xy / stretchClip.w;
-  return vec2(stretched.x, folded.y) * 0.5 + 0.5;
+  vec2 resting = flatClip.xy / flatClip.w;
+  return vec2(stretched.x, mix(resting.y, folded.y, uPerspective)) * 0.5 + 0.5;
 }
 
 // Refraction through the glass layer: where the eye's ray, bent at the surface, reaches the
@@ -155,7 +160,7 @@ void main() {
   // position), so it stays exact under the fold and the stretch. Computed before any
   // branching, as derivatives require.
   bool back = vIsBack > 0.5 && !uBackAsFront;
-  vec2 uv = lookupUv(back ? vStretchClipBack : vStretchClip);
+  vec2 uv = back ? lookupUv(vStretchClipBack, vFlatClipBack) : lookupUv(vStretchClip, vFlatClip);
   mat2 dLocal = mat2(dFdx(vLocal.xy), dFdy(vLocal.xy)); // columns: d local / d screen x, y
   mat2 dUv = mat2(dFdx(uv), dFdy(uv));
   if (abs(determinant(dLocal)) > 1e-12) {                 // not edge-on

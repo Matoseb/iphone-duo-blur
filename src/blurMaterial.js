@@ -9,7 +9,7 @@ export const BLUR_LEVELS = 6; // blur levels built by the post-process chain (sh
  */
 export function createScreenUniforms(portal, {
   maxLevel, frostDistance, blurExp, blurExpand, frostColor, frostPerUnit, frostExp, frostStrength,
-  lightLossPerUnit, lightLossExp, lightBlackPoint, glassOnDark, envMap, glassThickness, glassIor,
+  lightLossPerUnit, lightLossExp, lightBlackPoint, glassOnDark, envMap, glassThickness, glassIor, perspective,
 }) {
   const levels = {};
   for (let i = 0; i <= BLUR_LEVELS; i++) {
@@ -34,6 +34,9 @@ export function createScreenUniforms(portal, {
     uPortalViewProjection: { value: portal.viewProjection },
     uStretchMatrix: { value: new THREE.Matrix4() },
     uStretchMatrixBack: { value: new THREE.Matrix4() },
+    uFlatMatrix: { value: new THREE.Matrix4() },     // set once in book.js
+    uFlatMatrixBack: { value: new THREE.Matrix4() },
+    uPerspective: { value: perspective },
     uEnvMap: { value: envMap },
     uGlassThickness: { value: glassThickness },
     uGlassIor: { value: glassIor },
