@@ -19,12 +19,12 @@ const MATTE_REFLECTION = 0.3;  // inner screens: weak, diffuse sheen instead of 
 const MATTE_GLOSS = 6;         // inner screens: very blurred reflection (mip levels)
 const GLASS_THICKNESS = 0.03;  // glass layer over the displays (world units): refraction shifts the image at angles
 const GLASS_IOR = 1.5;         // index of refraction of that glass
-const MAX_BLUR_LEVEL = 15;      // 0..6, blur reached at FROST_DISTANCE from the window (each level doubles the radius)
-const FROST_DISTANCE = 3;    // frosted window: distance (world units) from the window plane at which the blur is maximal
+const MAX_BLUR_LEVEL = 20;      // 0..6, blur reached at FROST_DISTANCE from the window (each level doubles the radius)
+const FROST_DISTANCE = 2.5;    // frosted window: distance (world units) from the window plane at which the blur is maximal
 const BLUR_EXP = 1;            // blur vs distance: 1 = linear, < 1 = quick start, > 1 = slow start
 const BLUR_EXPAND = 0;         // 0..1: how far the blurred image spreads past its edges instead of darkening them
 const FROST_COLOR = 0x9a9a9a;  // diffuse tone of the frosted glass the image fades toward with distance
-const FROST_PER_UNIT = 1.2;    // rate of the fade toward that tone per world unit of distance (exponential decay)
+const FROST_PER_UNIT = 1.5;    // rate of the fade toward that tone per world unit of distance (exponential decay)
 const FROST_EXP = 1.3;         // shape: 1 = pure exponential, > 1 = slow start
 const FROST_STRENGTH = 1;      // 0 = no fade, 1 = can reach the frost tone completely
 const LIGHT_LOSS_PER_UNIT = 2.2; // light attenuation rate per world unit of distance (exponential decay)
