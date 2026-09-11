@@ -12,6 +12,7 @@ const THICKNESS = 0.08;        // thickness of each half (world units)
 const CORNER_RADIUS = 0.2;    // radius of the rounded outer corners of each half (world units)
 const EDGE_CHAMFER = 0.01;     // small chamfer on every edge between the faces and the rim (world units)
 const BEZEL = 0.04;            // black outline along the three outer edges of each display (world units)
+const DISPLAY_OVERSCAN = 0.008; // the image extends this far under the bezel (world units), hiding its edge from the opening
 const GLASS_REFLECTION = 1;    // cover display (back): 0..1, strength of the glass reflection
 const GLASS_GLOSS = 1;         // cover display (back): 0 = mirror sharp reflection, higher = blurrier (mip levels)
 const MATTE_REFLECTION = 0.3;  // inner screens: weak, diffuse sheen instead of a glass reflection
@@ -123,6 +124,7 @@ async function init() {
     cornerRadius: CORNER_RADIUS,
     edgeChamfer: EDGE_CHAMFER,
     bezel: BEZEL,
+    displayOverscan: DISPLAY_OVERSCAN,
     maxLevel: MAX_BLUR_LEVEL,
     frostDistance: FROST_DISTANCE,
     blurExp: BLUR_EXP,

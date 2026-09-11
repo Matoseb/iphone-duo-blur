@@ -149,7 +149,7 @@ export function createBook(portal, {
   stretchMaxDeg = 0, stretchStartDeg = 0, stretchEndDeg = 180, stretchTrack = false, perspective = 1,
   foldable = { left: true, right: true }, backScreen = { left: true, right: true },
   envMap = null, glass = { reflection: 1, gloss: 1 }, matte = { reflection: 0.3, gloss: 6 },
-  glassThickness = 0, glassIor = 1.5,
+  glassThickness = 0, glassIor = 1.5, displayOverscan = 0,
 }) {
   const group = new THREE.Group();
   const params = {
@@ -174,11 +174,15 @@ export function createBook(portal, {
   // The display area of the open phone: both screens, inside the chamfer and the bezel.
   // Screen extents are in the slab's local coordinates (centered on that half), so the
   // right half's outer edge sits at its center offset (width / 4) plus its local edge x.
+  // The image runs a little further under the bezel than the opening (overscan), so the
+  // pane's edge pixels never sample the display's antialiased boundary or the halo beyond
+  // it, even with the refraction shift and texture filtering.
   const right = halves[1].screen; // its outer edge is at +x
+  const inset = bezel - displayOverscan;
   const display = {
-    halfWidth: width / 4 + right.edgeX - bezel,
-    halfHeight: right.halfHeight - bezel,
-    radius: Math.max(0, right.cornerRadius - bezel),
+    halfWidth: width / 4 + right.edgeX - inset,
+    halfHeight: right.halfHeight - inset,
+    radius: Math.max(0, right.cornerRadius - inset),
   };
 
   return {
