@@ -9,7 +9,7 @@ export const BLUR_LEVELS = 6; // blur levels built by the post-process chain (sh
  */
 export function createScreenUniforms(portal, {
   maxLevel, frostDistance, blurExp, blurExpand, frostColor, frostPerUnit, frostExp, frostStrength,
-  lightLossPerUnit, lightLossExp, envMap, glassStrength, glassGloss,
+  lightLossPerUnit, lightLossExp, envMap,
 }) {
   const levels = {};
   for (let i = 0; i <= BLUR_LEVELS; i++) {
@@ -33,8 +33,6 @@ export function createScreenUniforms(portal, {
     uStretchMatrix: { value: new THREE.Matrix4() },
     uStretchMatrixBack: { value: new THREE.Matrix4() },
     uEnvMap: { value: envMap },
-    uGlassStrength: { value: glassStrength },
-    uGlassGloss: { value: glassGloss },
   };
 }
 
@@ -48,12 +46,15 @@ export function createScreenUniforms(portal, {
  */
 export function createScreenMaterial(sharedUniforms, {
   hingeX, edgeX, halfHeight, cornerRadius, bezel, windowZ, backAsFront = false,
+  reflection = 1, gloss = 1, // surface finish: glossy glass (1, 1) or matte (weak, very blurred)
 }) {
   return new THREE.ShaderMaterial({
     vertexShader,
     fragmentShader,
     uniforms: {
       ...sharedUniforms,
+      uGlassStrength: { value: reflection },
+      uGlassGloss: { value: gloss },
       uWindowZ: { value: windowZ },
       uHingeX: { value: hingeX },
       uEdgeX: { value: edgeX },

@@ -12,8 +12,10 @@ const THICKNESS = 0.08;        // thickness of each half (world units)
 const CORNER_RADIUS = 0.2;    // radius of the rounded outer corners of each half (world units)
 const EDGE_CHAMFER = 0.01;     // small chamfer on every edge between the faces and the rim (world units)
 const BEZEL = 0.04;            // black outline along the three outer edges of each display (world units)
-const GLASS_REFLECTION = 1;    // 0..1, strength of the glass reflection on the screens
-const GLASS_GLOSS = 1;         // 0 = mirror sharp reflection, higher = blurrier (mip levels)
+const GLASS_REFLECTION = 1;    // cover display (back): 0..1, strength of the glass reflection
+const GLASS_GLOSS = 1;         // cover display (back): 0 = mirror sharp reflection, higher = blurrier (mip levels)
+const MATTE_REFLECTION = 0.3;  // inner screens: weak, diffuse sheen instead of a glass reflection
+const MATTE_GLOSS = 6;         // inner screens: very blurred reflection (mip levels)
 const MAX_BLUR_LEVEL = 6;      // 0..6, blur reached at FROST_DISTANCE from the window (each level doubles the radius)
 const FROST_DISTANCE = 1.2;    // frosted window: distance (world units) from the window plane at which the blur is maximal
 const BLUR_EXP = 1;            // blur vs distance: 1 = linear, < 1 = quick start, > 1 = slow start
@@ -33,6 +35,12 @@ const FOLLOW_RATE = 8;        // per second: how quickly the pane catches up wit
 const TOGGLE_DURATION = 0.9;   // seconds: open / close animation on tap (ease in-out)
 const SNAP_ANGLE = 8;          // degrees: releasing a drag this close to fully open / closed snaps to it (detent)
 const SNAP_DURATION = 0.3;     // seconds: the snap animation
+const INTRO_DELAY = 0.3;       // seconds before the page-load intro starts
+const INTRO_DURATION = 1.8;    // seconds: the phone opens, then the camera swings to the default view
+const INTRO_CAMERA_LAG = 0;    // seconds after the fold starts before the camera starts moving (0 = together)
+const INTRO_CAMERA_EASE = 5;   // steepness of the camera's ease in-out (3 = cubic, higher = sharper middle, longer rests)
+const INTRO_AZIMUTH_DEG = -55; // where the camera starts, around the phone (0 = frontal)
+const INTRO_ELEVATION_DEG = 18; // ...and above it
 const CAMERA_FOV = 34;
 const PORTAL_FOV = 30;         // inner camera the screens show the image from: wide = strong perspective, narrow = flat
 const PORTAL_GLOW = 0.5;       // brightness of the big blurred halo of the image behind the display (0 = none)
@@ -126,8 +134,8 @@ async function init() {
     foldable: { left: true, right: false },
     backScreen: { left: true, right: false }, // 3 displays: both fronts + the left back (shows the image as it closes); right back is chrome
     envMap: envCube.texture,
-    glassStrength: GLASS_REFLECTION,
-    glassGloss: GLASS_GLOSS,
+    glass: { reflection: GLASS_REFLECTION, gloss: GLASS_GLOSS },
+    matte: { reflection: MATTE_REFLECTION, gloss: MATTE_GLOSS },
   });
   scene.add(book.group);
 
@@ -167,13 +175,12 @@ async function init() {
     else if (angle >= max * 180 - SNAP_ANGLE) half.animateTo(max, SNAP_DURATION);
   }
 
-  // Optional starting state, e.g. ?left=0.6
+  // Starting state: closed, then the intro opens it (or ?left=0.6 for a fixed state)
+  const left = book.halves[0];
   const value = parseFloat(new URLSearchParams(location.search).get('left'));
-  if (!Number.isNaN(value)) {
-    const left = book.halves[0];
-    left.target = THREE.MathUtils.clamp(value, 0, 1);
-    left.setFold(left.target);
-  }
+  const fixedStart = !Number.isNaN(value);
+  left.target = fixedStart ? THREE.MathUtils.clamp(value, 0, 1) : 1;
+  left.setFold(left.target);
 
   const orbit = new OrbitControls(camera, renderer.domElement);
   orbit.enableDamping = true;
@@ -190,12 +197,51 @@ async function init() {
   }
   fit();
   onResize = fit;
+
+  // Page-load intro: the camera swings from an angle above and to the side into the default
+  // frontal view while the phone opens. Orbit is off until it is done.
+  // ease in-out with an adjustable steepness: power INTRO_CAMERA_EASE on both halves
+  const easeInOut = (t, p) => (t < 0.5 ? Math.pow(2 * t, p) / 2 : 1 - Math.pow(2 * (1 - t), p) / 2);
+  const intro = fixedStart ? null : { elapsed: 0, started: false };
+  const introFrom = new THREE.Spherical(1, Math.PI / 2 - THREE.MathUtils.degToRad(INTRO_ELEVATION_DEG), THREE.MathUtils.degToRad(INTRO_AZIMUTH_DEG));
+  const introTo = new THREE.Spherical(1, Math.PI / 2, 0);
+  const spherical = new THREE.Spherical();
+  function placeCamera(t) {
+    const radius = camera.position.distanceTo(orbit.target); // keep the fitted distance
+    spherical.set(radius, THREE.MathUtils.lerp(introFrom.phi, introTo.phi, t), THREE.MathUtils.lerp(introFrom.theta, introTo.theta, t));
+    camera.position.setFromSpherical(spherical).add(orbit.target);
+    camera.lookAt(orbit.target);
+  }
+  if (intro) {
+    orbit.enabled = false;
+    placeCamera(0);
+  }
+  function updateIntro(dt) {
+    if (!intro) return;
+    intro.elapsed += dt;
+    if (intro.elapsed < INTRO_DELAY) return;
+    if (!intro.started) {
+      intro.started = true;
+      left.animateTo(0, INTRO_DURATION);
+    }
+    // the fold leads, the camera follows shortly after
+    const t = THREE.MathUtils.clamp((intro.elapsed - INTRO_DELAY - INTRO_CAMERA_LAG) / INTRO_DURATION, 0, 1);
+    placeCamera(easeInOut(t, INTRO_CAMERA_EASE));
+    if (t >= 1) {
+      orbit.enabled = true;
+      orbit.update(); // adopt the final camera position
+      introDone();
+    }
+  }
+  let introDone = () => {};
   portal.render(); // once: the frosted window never changes
 
   const clock = new THREE.Clock();
+  let introRunning = !!intro;
+  introDone = () => { introRunning = false; };
   renderer.setAnimationLoop(() => {
     const dt = Math.min(clock.getDelta(), 0.1); // clamp after a tab switch / stall
-    orbit.update();
+    if (introRunning) updateIntro(dt); else orbit.update();
     for (const half of book.halves) half.update(dt, FOLLOW_RATE);
     renderer.render(scene, camera);
   });

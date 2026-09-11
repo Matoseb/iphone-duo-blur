@@ -16,7 +16,7 @@ function createHalf(portal, side, {
   halfWidth, height, thickness, cornerRadius, edgeChamfer, bezel, backScreen, foldable,
   maxLevel, frostDistance, blurExp, blurExpand, frostColor, frostPerUnit, frostExp, frostStrength,
   lightLossPerUnit, lightLossExp, blackoutStartDeg, blackoutEndDeg,
-  stretchMaxDeg, stretchStartDeg, stretchEndDeg, envMap, glassStrength, glassGloss,
+  stretchMaxDeg, stretchStartDeg, stretchEndDeg, envMap, glass, matte,
 }) {
   // the hinge is at +x for the left half and -x for the right half
   const { geometry, screen } = createSlabGeometry({
@@ -25,7 +25,7 @@ function createHalf(portal, side, {
 
   const shared = createScreenUniforms(portal, {
     maxLevel, frostDistance, blurExp, blurExpand, frostColor, frostPerUnit, frostExp, frostStrength,
-    lightLossPerUnit, lightLossExp, envMap, glassStrength, glassGloss,
+    lightLossPerUnit, lightLossExp, envMap,
   });
   // Frosted windows: the plane each face rests on when flat against the image.
   // Front: the hinge axis plane (z = thickness / 2). Back of a folding half: the top of the
@@ -33,11 +33,12 @@ function createHalf(portal, side, {
   const hingeZ = thickness / 2;
   const backWindowZ = foldable ? hingeZ + thickness : hingeZ - thickness;
   const chrome = createChromeMaterial();
+  // the inner screens are matte, the cover display on the back is glossy glass
   const materials = [
-    createScreenMaterial(shared, { ...screen, bezel, windowZ: hingeZ }), // group 0: front screen
-    chrome,                                                             // group 1: the rim
-    backScreen                                                          // group 2: back, a cover display or plain body
-      ? createScreenMaterial(shared, { ...screen, bezel, windowZ: backWindowZ, backAsFront: !foldable })
+    createScreenMaterial(shared, { ...screen, bezel, windowZ: hingeZ, ...matte }), // group 0: front screen
+    chrome,                                                                        // group 1: the rim
+    backScreen                                                                     // group 2: back, a cover display or plain body
+      ? createScreenMaterial(shared, { ...screen, bezel, windowZ: backWindowZ, backAsFront: !foldable, ...glass })
       : chrome,
   ];
 
@@ -135,13 +136,13 @@ export function createBook(portal, {
   blackoutStartDeg = 180, blackoutEndDeg = 180,
   stretchMaxDeg = 0, stretchStartDeg = 0, stretchEndDeg = 180,
   foldable = { left: true, right: true }, backScreen = { left: true, right: true },
-  envMap = null, glassStrength = 1, glassGloss = 1,
+  envMap = null, glass = { reflection: 1, gloss: 1 }, matte = { reflection: 0.3, gloss: 6 },
 }) {
   const group = new THREE.Group();
   const params = {
     halfWidth: width / 2, height, thickness, cornerRadius, edgeChamfer, bezel, maxLevel, frostDistance, blurExp, blurExpand,
     frostColor, frostPerUnit, frostExp, frostStrength, lightLossPerUnit, lightLossExp, blackoutStartDeg, blackoutEndDeg,
-    stretchMaxDeg, stretchStartDeg, stretchEndDeg, envMap, glassStrength, glassGloss,
+    stretchMaxDeg, stretchStartDeg, stretchEndDeg, envMap, glass, matte,
   };
 
   const halves = [
