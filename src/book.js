@@ -98,6 +98,16 @@ function createHalf(portal, side, {
     grabZone,
     fold: 0,    // eased value actually displayed
     target: 0,  // value the drag / toggle is aiming for
+    /** The uniform driving this half's front blackout (0..1). */
+    blackoutUniform: shared.uBlackout,
+    /** Current front blackout (0..1) as sent to the shader. */
+    getFrontBlackout() {
+      return pane.material[0].uniforms.uBlackout.value;
+    },
+    /** Make this half's front display switch off with another half's blackout: the same variable. */
+    linkBlackoutTo(source) {
+      pane.material[0].uniforms.uBlackout = source.blackoutUniform;
+    },
     tween: null, // { from, to, elapsed, duration } while an open/close animation runs
     /** Start an eased animation of the fold toward `to` (cancels any running one). */
     animateTo(to, duration) {
@@ -164,6 +174,11 @@ export function createBook(portal, {
     createHalf(portal, +1, { ...params, foldable: foldable.right, backScreen: backScreen.right }),
   ];
   for (const half of halves) group.add(half.hinge, half.grabZone);
+
+  // the whole inner display switches off together: a static half's front shares the
+  // folding half's blackout variable (its own angle never changes)
+  const folding = halves.find((h) => h.foldable);
+  if (folding) for (const other of halves) if (!other.foldable) other.linkBlackoutTo(folding);
 
   // every pane (and the spot where it sits when unfolded) is hittable: a foldable half can
   // be dragged, and a tap anywhere on the phone toggles (see main.js)

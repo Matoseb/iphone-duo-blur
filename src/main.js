@@ -19,8 +19,8 @@ const MATTE_REFLECTION = 0.3;  // inner screens: weak, diffuse sheen instead of 
 const MATTE_GLOSS = 6;         // inner screens: very blurred reflection (mip levels)
 const GLASS_THICKNESS = 0.03;  // glass layer over the displays (world units): refraction shifts the image at angles
 const GLASS_IOR = 1.5;         // index of refraction of that glass
-const MAX_BLUR_LEVEL = 5.3;      // 0..6, blur reached at FROST_DISTANCE from the window (each level doubles the radius)
-const FROST_DISTANCE = 1.2 * .9;    // frosted window: distance (world units) from the window plane at which the blur is maximal
+const MAX_BLUR_LEVEL = 6;      // 0..6, blur reached at FROST_DISTANCE from the window (each level doubles the radius)
+const FROST_DISTANCE = 3.5;    // frosted window: distance (world units) from the window plane at which the blur is maximal
 const BLUR_EXP = 1;            // blur vs distance: 1 = linear, < 1 = quick start, > 1 = slow start
 const BLUR_EXPAND = 0;         // 0..1: how far the blurred image spreads past its edges instead of darkening them
 const FROST_COLOR = 0x9a9a9a;  // diffuse tone of the frosted glass the image fades toward with distance
@@ -31,7 +31,7 @@ const LIGHT_LOSS_PER_UNIT = 2.2; // light attenuation rate per world unit of dis
 const LIGHT_LOSS_EXP = 1.6;      // shape: 1 = pure exponential, > 1 = slow start, steeper middle
 const LIGHT_BLACK_POINT = 0.06;  // light below this fraction clips to true black (kills the exponential's tail)
 const GLASS_ON_DARK = 0.35;      // how much reflection sheen remains where the light is gone (0 = none)
-const BLACKOUT_START_DEG = 100; // the display starts switching off at this fold angle...
+const BLACKOUT_START_DEG = 60;  // the displays start switching off at this fold angle (both inner screens fade together)...
 const BLACKOUT_END_DEG = 125;   // ...and is fully black from this angle on (back: measured from closed)
 const STRETCH_MAX_DEG = 85;    // horizontal lookup angle cap (< 90, where the projection collapses); 0 = no stretch at all
 const STRETCH_START_DEG = 0;   // stylized mode only: real fold angle where the stretch starts
