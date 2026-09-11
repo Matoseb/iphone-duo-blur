@@ -19,8 +19,8 @@ const MATTE_REFLECTION = 0.3;  // inner screens: weak, diffuse sheen instead of 
 const MATTE_GLOSS = 6;         // inner screens: very blurred reflection (mip levels)
 const GLASS_THICKNESS = 0.03;  // glass layer over the displays (world units): refraction shifts the image at angles
 const GLASS_IOR = 1.5;         // index of refraction of that glass
-const MAX_BLUR_LEVEL = 6;      // 0..6, blur reached at FROST_DISTANCE from the window (each level doubles the radius)
-const FROST_DISTANCE = 3.5;    // frosted window: distance (world units) from the window plane at which the blur is maximal
+const MAX_BLUR_LEVEL = 15;      // 0..6, blur reached at FROST_DISTANCE from the window (each level doubles the radius)
+const FROST_DISTANCE = 3;    // frosted window: distance (world units) from the window plane at which the blur is maximal
 const BLUR_EXP = 1;            // blur vs distance: 1 = linear, < 1 = quick start, > 1 = slow start
 const BLUR_EXPAND = 0;         // 0..1: how far the blurred image spreads past its edges instead of darkening them
 const FROST_COLOR = 0x9a9a9a;  // diffuse tone of the frosted glass the image fades toward with distance
@@ -31,14 +31,18 @@ const LIGHT_LOSS_PER_UNIT = 2.2; // light attenuation rate per world unit of dis
 const LIGHT_LOSS_EXP = 1.6;      // shape: 1 = pure exponential, > 1 = slow start, steeper middle
 const LIGHT_BLACK_POINT = 0.06;  // light below this fraction clips to true black (kills the exponential's tail)
 const GLASS_ON_DARK = 0.35;      // how much reflection sheen remains where the light is gone (0 = none)
-const BLACKOUT_START_DEG = 60;  // the displays start switching off at this fold angle (both inner screens fade together)...
+const BLACKOUT_START_DEG = 60;   // the displays start switching off at this fold angle (both inner screens fade together)...
 const BLACKOUT_END_DEG = 125;   // ...and is fully black from this angle on (back: measured from closed)
+const BLACKOUT_BACK_START_DEG = 15; // cover display, measured from fully closed: starts switching off this far open...
+const BLACKOUT_BACK_END_DEG = 70;   // ...and is fully black from there (same fade code as the inner screens, standalone)
 const STRETCH_MAX_DEG = 85;    // horizontal lookup angle cap (< 90, where the projection collapses); 0 = no stretch at all
 const STRETCH_START_DEG = 0;   // stylized mode only: real fold angle where the stretch starts
 const STRETCH_END_DEG = 130;   // stylized mode only: real fold angle where the stretch reaches full strength
 const STRETCH_TRACK = true;    // true = physical: the lookup follows the real fold angle (counter stretch: the picture
                                // stays in place as seen from the portal viewpoint); false = stylized sine ramp
 const PERSPECTIVE = 1;         // vertical: 0 = flat lookup (no wedges), 1 = full projection of the fold through the portal camera
+const SQUEEZE = 1;             // 0..1: sharp pixels near the hinge keep the pane's own unstretched mapping (counters the projection's stretch)
+const SQUEEZE_EXP = 2;         // how fast that gives way to the projected mapping as the blur grows (> 1 = sooner)
 const FOLLOW_RATE = 8;        // per second: how quickly the pane catches up with the finger while dragging
 const TOGGLE_DURATION = 0.9;   // seconds: open / close animation on tap (ease in-out)
 const SNAP_ANGLE = 8;          // degrees: releasing a drag this close to fully open / closed snaps to it (detent)
@@ -50,8 +54,10 @@ const INTRO_CAMERA_EASE = 5;   // steepness of the camera's ease in-out (3 = cub
 const INTRO_AZIMUTH_DEG = -55; // where the camera starts, around the phone (0 = frontal)
 const INTRO_ELEVATION_DEG = 18; // ...and above it
 const CAMERA_FOV = 34;
-const PORTAL_FOV = 30;         // inner camera the screens show the image from: wide = strong perspective, narrow = flat
-const PORTAL_GLOW = 0.5;       // brightness of the big blurred halo of the image behind the display (0 = none)
+const PORTAL_FOV_START = 34;   // inner camera the screens show the image from, when open: wide = strong perspective, narrow = flat
+const PORTAL_FOV_END = 50;     // ...and when fully closed; interpolated with the fold (the portal is re-rendered as it changes)
+const PORTAL_FOV_EXP = 2;      // shape of that interpolation vs the fold: 1 = linear, > 1 = stays near START longer, < 1 = moves early
+const PORTAL_GLOW = 0;         // brightness of the big blurred halo of the image behind the display (0 = black surround)
 const FIT_PADDING = 0.08;      // fraction of the viewport kept clear around the open phone (object-fit: contain)
 const MAX_PHONE_PX = 900;      // the open phone never gets larger than this on screen (CSS px, larger side)
 
@@ -99,7 +105,7 @@ function fitDistance(width, height) {
 
 // portal: the unfolded image seen from a FIXED camera at the same default viewpoint.
 // The panes are screens showing that view; they never know where the real viewer is.
-const portal = createPortal(renderer, { fov: PORTAL_FOV, glowStrength: PORTAL_GLOW });
+const portal = createPortal(renderer, { fov: PORTAL_FOV_START, glowStrength: PORTAL_GLOW });
 
 let onResize = () => {};
 window.addEventListener('resize', () => {
@@ -139,11 +145,15 @@ async function init() {
     glassOnDark: GLASS_ON_DARK,
     blackoutStartDeg: BLACKOUT_START_DEG,
     blackoutEndDeg: BLACKOUT_END_DEG,
+    blackoutBackStartDeg: BLACKOUT_BACK_START_DEG,
+    blackoutBackEndDeg: BLACKOUT_BACK_END_DEG,
     stretchMaxDeg: STRETCH_MAX_DEG,
     stretchStartDeg: STRETCH_START_DEG,
     stretchEndDeg: STRETCH_END_DEG,
     stretchTrack: STRETCH_TRACK,
     perspective: PERSPECTIVE,
+    squeeze: SQUEEZE,
+    squeezeExp: SQUEEZE_EXP,
     foldable: { left: true, right: false },
     backScreen: { left: true, right: false }, // 3 displays: both fronts + the left back (shows the image as it closes); right back is chrome
     envMap: envCube.texture,
@@ -251,6 +261,17 @@ async function init() {
   let introDone = () => {};
   portal.render(); // once: the frosted window never changes
 
+  // the portal camera's field of view follows the fold: re-render the portal (and its blur
+  // levels) only when it actually changes, so an idle phone costs nothing
+  let portalFov = -1;
+  function updatePortalFov() {
+    const fov = THREE.MathUtils.lerp(PORTAL_FOV_START, PORTAL_FOV_END, Math.pow(book.halves[0].fold, PORTAL_FOV_EXP));
+    if (Math.abs(fov - portalFov) < 1e-3) return;
+    portalFov = fov;
+    portal.setFov(fov);
+    portal.render();
+  }
+
   const clock = new THREE.Clock();
   let introRunning = !!intro;
   introDone = () => { introRunning = false; };
@@ -258,6 +279,7 @@ async function init() {
     const dt = Math.min(clock.getDelta(), 0.1); // clamp after a tab switch / stall
     if (introRunning) updateIntro(dt); else orbit.update();
     for (const half of book.halves) half.update(dt, FOLLOW_RATE);
+    updatePortalFov();
     renderer.render(scene, camera);
   });
 }

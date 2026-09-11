@@ -16,7 +16,8 @@ function createHalf(portal, side, {
   halfWidth, height, thickness, cornerRadius, edgeChamfer, bezel, backScreen, foldable,
   maxLevel, frostDistance, blurExp, blurExpand, frostColor, frostPerUnit, frostExp, frostStrength,
   lightLossPerUnit, lightLossExp, lightBlackPoint, glassOnDark, blackoutStartDeg, blackoutEndDeg,
-  stretchMaxDeg, stretchStartDeg, stretchEndDeg, stretchTrack, perspective,
+  blackoutBackStartDeg, blackoutBackEndDeg,
+  stretchMaxDeg, stretchStartDeg, stretchEndDeg, stretchTrack, perspective, squeeze, squeezeExp,
   envMap, glass, matte, glassThickness, glassIor,
 }) {
   // the hinge is at +x for the left half and -x for the right half
@@ -27,6 +28,7 @@ function createHalf(portal, side, {
   const shared = createScreenUniforms(portal, {
     maxLevel, frostDistance, blurExp, blurExpand, frostColor, frostPerUnit, frostExp, frostStrength,
     lightLossPerUnit, lightLossExp, lightBlackPoint, glassOnDark, envMap, glassThickness, glassIor, perspective,
+    squeeze, squeezeExp,
   });
   // Frosted windows: the plane each face rests on when flat against the image.
   // Front: the hinge axis plane (z = thickness / 2). Back of a folding half: the top of the
@@ -75,8 +77,12 @@ function createHalf(portal, side, {
   const end = THREE.MathUtils.degToRad(stretchEndDeg);
   const blackoutStart = THREE.MathUtils.degToRad(blackoutStartDeg);
   const blackoutEnd = THREE.MathUtils.degToRad(blackoutEndDeg);
+  const blackoutBackStart = THREE.MathUtils.degToRad(blackoutBackStartDeg);
+  const blackoutBackEnd = THREE.MathUtils.degToRad(blackoutBackEndDeg);
   // the display switches off between the two blackout angles, fully black past the end
   const blackoutAt = (a) => THREE.MathUtils.smoothstep(a, blackoutStart, blackoutEnd);
+  // same for the cover display, with its own angles measured from fully closed
+  const blackoutBackAt = (a) => THREE.MathUtils.smoothstep(a, blackoutBackStart, blackoutBackEnd);
   // Horizontal lookup angle. Track mode: the real fold angle, capped just below 90° where
   // the projection would collapse. This is the physical "frosted sheet over the window"
   // look: from the fixed viewpoint the picture stays in place and the pane's content is
@@ -136,7 +142,7 @@ function createHalf(portal, side, {
       // the back runs the same stretch and blackout measured from fully closed (180°)
       const backAngle = Math.PI - angle;
       shared.uBlackout.value = blackoutAt(angle);
-      shared.uBlackoutBack.value = blackoutAt(backAngle);
+      shared.uBlackoutBack.value = blackoutBackAt(backAngle);
       // front: virtual angle opens from flat; back: virtual angle opens from closed (180°)
       poseAt(shared.uStretchMatrix.value, virtualAngleFor(angle));
       poseAt(shared.uStretchMatrixBack.value, Math.PI - virtualAngleFor(backAngle));
@@ -155,8 +161,8 @@ export function createBook(portal, {
   maxLevel, frostDistance = 1, blurExp = 1, blurExpand = 0,
   frostColor = 0x9a9a9a, frostPerUnit = 1, frostExp = 1, frostStrength = 0, lightLossPerUnit = 0, lightLossExp = 1,
   lightBlackPoint = 0, glassOnDark = 1,
-  blackoutStartDeg = 180, blackoutEndDeg = 180,
-  stretchMaxDeg = 0, stretchStartDeg = 0, stretchEndDeg = 180, stretchTrack = false, perspective = 1,
+  blackoutStartDeg = 180, blackoutEndDeg = 180, blackoutBackStartDeg = 180, blackoutBackEndDeg = 180,
+  stretchMaxDeg = 0, stretchStartDeg = 0, stretchEndDeg = 180, stretchTrack = false, perspective = 1, squeeze = 0, squeezeExp = 2,
   foldable = { left: true, right: true }, backScreen = { left: true, right: true },
   envMap = null, glass = { reflection: 1, gloss: 1 }, matte = { reflection: 0.3, gloss: 6 },
   glassThickness = 0, glassIor = 1.5, displayOverscan = 0,
@@ -165,8 +171,8 @@ export function createBook(portal, {
   const params = {
     halfWidth: width / 2, height, thickness, cornerRadius, edgeChamfer, bezel, maxLevel, frostDistance, blurExp, blurExpand,
     frostColor, frostPerUnit, frostExp, frostStrength, lightLossPerUnit, lightLossExp, lightBlackPoint, glassOnDark,
-    blackoutStartDeg, blackoutEndDeg,
-    stretchMaxDeg, stretchStartDeg, stretchEndDeg, stretchTrack, perspective, envMap, glass, matte, glassThickness, glassIor,
+    blackoutStartDeg, blackoutEndDeg, blackoutBackStartDeg, blackoutBackEndDeg,
+    stretchMaxDeg, stretchStartDeg, stretchEndDeg, stretchTrack, perspective, squeeze, squeezeExp, envMap, glass, matte, glassThickness, glassIor,
   };
 
   const halves = [

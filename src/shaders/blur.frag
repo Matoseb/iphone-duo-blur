@@ -34,6 +34,8 @@ uniform float uBlackout;         // front: 0 = display on, 1 = fully black (past
 uniform float uBlackoutBack;     // back: same, measured from fully closed
 uniform float uBlurExpand;       // 0 = blur darkens the edges (black bleeds in), 1 = blurred image expands outward
 uniform float uPerspective;      // vertical: 0 = flat lookup (no wedges), 1 = real projection of the fold through the portal camera
+uniform float uSqueeze;          // 0..1: sharp pixels keep the pane's own unstretched mapping instead of the projected one
+uniform float uSqueezeExp;       // how fast that gives way to the projected mapping as the blur grows (> 1 = sooner)
 uniform float uHingeX;           // local x of the hinge edge of the screen
 uniform float uEdgeX;            // local x of the outer edge of the screen
 uniform float uHalfHeight;       // local half height of the screen
@@ -75,7 +77,18 @@ vec2 lookupUv(vec4 stretchClip, vec4 flatClip) {
   vec2 folded = vPortalClip.xy / vPortalClip.w;
   vec2 stretched = stretchClip.xy / stretchClip.w;
   vec2 resting = flatClip.xy / flatClip.w;
-  return vec2(stretched.x, mix(resting.y, folded.y, uPerspective)) * 0.5 + 0.5;
+  vec2 uv = vec2(stretched.x, mix(resting.y, folded.y, uPerspective));
+
+  // Squeeze: the projection covers less of the picture near the hinge the more the pane
+  // folds, so the sharp pixels there get stretched. Where a pixel is still sharp, use the
+  // pane's own unstretched mapping (its flat slice) instead, and let it give way to the
+  // projected mapping as the blur grows and hides the stretch. Both agree at the hinge.
+  float distance = abs(vWorldPosition.z - uWindowZ);
+  float amount = pow(clamp(distance / uFrostDistance, 0.0, 1.0), uBlurExp);
+  float sharp = pow(1.0 - amount, uSqueezeExp) * uSqueeze;
+  uv.x = mix(uv.x, resting.x, sharp);
+
+  return uv * 0.5 + 0.5;
 }
 
 // Refraction through the glass layer: where the eye's ray, bent at the surface, reaches the
@@ -119,8 +132,10 @@ vec4 renderFace(vec2 uv, float blackout) {
   // toward the glass's own diffuse tone (not toward black).
   // Both follow an exponential decay with distance (like attenuation along a light guide):
   // smooth everywhere, never a hard cut-off.
+  // (scaled by the coverage: where there is no picture behind the glass, the surround
+  // stays black instead of being lifted toward the frost tone)
   float frost = (1.0 - exp(-pow(distance * uFrostPerUnit, uFrostExp))) * uFrostStrength;
-  vec3 color = mix(unpremultiplied * coverage, uFrostColor, frost);
+  vec3 color = mix(unpremultiplied * coverage, uFrostColor * coverage, frost);
   // ...and less light makes it through: the light fades out with distance
   float light = exp(-pow(distance * uLightLossPerUnit, uLightLossExp));
   light = clamp((light - uLightBlackPoint) / (1.0 - uLightBlackPoint), 0.0, 1.0); // true black at the tail

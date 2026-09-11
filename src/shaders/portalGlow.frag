@@ -6,6 +6,9 @@ uniform float uStrength;      // brightness of the halo (0 = none, 1 = as bright
 varying vec2 vUv;
 
 void main() {
-  gl_FragColor = vec4(texture2D(uGlow, vUv).rgb * uStrength, 1.0);
+  // premultiplied, alpha included: where there is no halo the frame stays transparent, so
+  // the panes treat it as "no picture" (black) rather than as a covered, tintable surface
+  vec4 glow = texture2D(uGlow, vUv) * uStrength;
+  gl_FragColor = glow;
   #include <colorspace_fragment>
 }
